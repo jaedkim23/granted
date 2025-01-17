@@ -189,9 +189,9 @@ def get_open_alex_data_ai(id_in):
     pub_alex = pub_alex[pub_alex['author_id'] == 'https://openalex.org/'+id_in]
     return pub_alex
 
-def find_lookup_record(author_in):
-    author_record = emp[emp['preferred_name']==author_in]
-    author_record = id_lookup[id_lookup['emp_id']==int(author_record['emp_id'].values[0])]
+def find_lookup_record(author_in, emp_tbl, id_lookup_tbl):
+    author_record = emp_tbl[emp_tbl['preferred_name']==author_in]
+    author_record = id_lookup_tbl[id_lookup_tbl['emp_id']==int(author_record['emp_id'].values[0])]
     # author_record = author_record['wos_id'].to_list()
     return author_record
 

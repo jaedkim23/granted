@@ -6,17 +6,26 @@ import requests
 import datetime
 from common_func import *
 import difflib
+from sqlalchemy import create_engine, text
 
 api = '1228ec5f8a29051d5dd8a7fbbd01a114d6de7ef1'
 
-con = mysql.connector.connect(
+host=''
+user=''
+password=''
+port = 
+schema = ''
+engine_url = f"mysql+mysqlconnector://{user}:{password}@{host}:{port}/{schema}"
+engine = create_engine(engine_url, echo = False)
+con = engine.connect()
+
+### For delete commands (revise later)
+conn_del = mysql.connector.connect(
     host='',
     database='',
     user='',
     password=''
 )
-
-cursor = con.cursor()
 
 qry  = "SELECT * FROM emp_cas"
 CAS = pd.read_sql(qry, con)
@@ -83,20 +92,20 @@ for n in range(0, len(emp)):
             record = pd.read_sql(check_qry, con)
             if record.empty:
                 qry = """INSERT INTO wos_lookup_history (emp_id, wos_id, author_name, search_term) VALUES ({}, "{}","{}","{}")""".format(emp_id, wos_id,match,author_in)
-                cursor.execute(qry)
+                con.execute(text(qry))
                 con.commit()        
             check_qry = "SELECT * FROM id_lookup where emp_id = {} AND wos_id='{}'".format(emp_id, wos_id)
             record = pd.read_sql(check_qry, con)
             if record.empty:
                 qry = "INSERT INTO id_lookup (emp_id, wos_id) VALUES ({}, '{}')".format(emp_id, wos_id)
-                cursor.execute(qry)
+                con.execute(text(qry))
                 con.commit()
     else:
         print("No record found for "+ search_name)
         wos_id = None
         match = ""
         qry = """INSERT INTO wos_lookup_history (emp_id, wos_id, author_name, search_term) VALUES ({}, "{}","{}","{}")""".format(emp_id, wos_id,match,author_in)
-        cursor.execute(qry)
+        con.execute(text(qry))
         con.commit()
 
 ############################################################################################################
@@ -118,9 +127,9 @@ for n in range(0, len(emp)):
                 if any(first_name[0] in name[0] for name in known_names):            
                     continue
                 else:
-                    remove_from_wos_lookup(con, emp_id, df['wos_id'][wos_id_n])
+                    remove_from_wos_lookup(conn_del, emp_id, df['wos_id'][wos_id_n])
             else:        
-                remove_from_wos_lookup(con, emp_id, df['wos_id'][wos_id_n])
+                remove_from_wos_lookup(conn_del, emp_id, df['wos_id'][wos_id_n])
 
 
 ############################################################################################################
@@ -236,14 +245,14 @@ for n in range(len(emp)):
     if record.empty:
         print('Inserting record for '+ search_name)
         qry = "INSERT INTO id_lookup (emp_id, alex_id) VALUES ({}, '{}')".format(emp_id, alex_id)
-        con.cursor().execute(qry)
+        con.execute(text(qry))
     elif record['alex_id'][0] != alex_id:
         print('Updating record for '+ search_name)
         qry = "UPDATE id_lookup SET alex_id = '{}' WHERE emp_id = {}".format(alex_id, emp_id)
-        con.cursor().execute(qry)
+        con.execute(text(qry))
     else:
         wos_id = record['wos_id'][0]
         qry1 = "UPDATE id_lookup SET alex_id = '{}' WHERE emp_id = {}".format(alex_id, emp_id)
-        con.cursor().execute(qry1)
+        con.execute(text(qry1))
     con.commit()
 

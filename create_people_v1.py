@@ -4,7 +4,7 @@ import mysql.connector
 import pandas as pd
 import numpy as np
 import re
-
+from sqlalchemy import create_engine, text
 
 #### Add your MySQL credentials
 conn = mysql.connector.connect(
