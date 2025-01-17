@@ -1,16 +1,10 @@
-import os
 from dotenv import load_dotenv
 from mysql.connector import Error
 import mysql.connector
 import pandas as pd
 import numpy as np
-import time
-import json
-import requests
 import re
-import random
-import datetime
-import difflib
+
 
 #### Add your MySQL credentials
 conn = mysql.connector.connect(
