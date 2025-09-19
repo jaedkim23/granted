@@ -1,6 +1,7 @@
 GRANTED
 
 **Organizations:** University of San Diego, Elon University, Pepperdine University
+
 **Active USD Team Members in Repo:** Jae Kim, Nafee Al Islam, Megan Bailey, Satish Attili
 
 ---
