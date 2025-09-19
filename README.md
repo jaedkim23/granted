@@ -7,7 +7,7 @@ GRANTED
 
 ## 📖 Overview
 
-This repo is for the creation of teh HERD and research databases. Details to be adeed.
+This repo is for the creation of the HERD and research databases. Details to be adeed.
 
 ---
 
