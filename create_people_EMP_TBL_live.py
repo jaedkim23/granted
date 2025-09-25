@@ -12,6 +12,8 @@ import random
 import datetime
 import difflib
 
+load_dotenv()  # Loads variables from .env into environment
+
 db_host = os.getenv('HOST')
 db_name = os.getenv('DATABASE')
 db_user = os.getenv('USERNAME')
