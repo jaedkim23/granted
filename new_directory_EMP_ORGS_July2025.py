@@ -4,7 +4,6 @@ from mysql.connector import Error
 from sqlalchemy import create_engine, text
 import numpy as np
 import os
-load_dotenv()  # Loads variables from .env into environment
 
 csv_url = "http://lws.sandiego.edu/department-report/get-dirs.php"
 DF = pd.read_csv(csv_url, delimiter="|")
@@ -51,7 +50,7 @@ load_dotenv()  # Loads variables from .env into environment
 
 db_host = os.getenv('HOST')
 db_name = os.getenv('DATABASE')
-db_user = os.getenv('USERNAME')
+db_user = 'admin'
 db_password = os.getenv('PASSWORD')
 db_port = os.getenv('PORT', 3306)  # Default to 3306 if not set
 
@@ -76,14 +75,13 @@ for rec in range(len(DF_out)):
     else:
         res_id = emp_found['res_id'].values[0]
         preferred_name = emp_found['preferred_name'].values
-        check_qry = '''SELECT * FROM EMP_ORGS WHERE res_id = {} AND banner_id= {} AND full_name = "{}" 
-                        AND email = "{}" AND UNIT = "{}"'''.format(res_id, emp_bannerid, emp_name, emp_email, emp_subunit)
+        check_qry = '''SELECT * FROM emp_orgs WHERE res_id = {} AND banner_id= {} AND full_name = "{}" 
+                        AND email = "{}" AND unit = "{}"'''.format(res_id, emp_bannerid, emp_name, emp_email, emp_subunit)
         check_df = pd.read_sql(check_qry, con)        
         if check_df.empty:
-            insert_qry = 'INSERT INTO EMP_ORGS (res_id, banner_id, full_name, email, UNIT) VALUES ({}, "{}", "{}", "{}", "{}")'.format(res_id, emp_bannerid, emp_name, emp_email, emp_subunit)
+            insert_qry = 'INSERT INTO emp_orgs (res_id, banner_id, full_name, email, unit) VALUES ({}, "{}", "{}", "{}", "{}")'.format(res_id, emp_bannerid, emp_name, emp_email, emp_subunit)
             con.execute(text(insert_qry))
             con.commit()
-
 
 check_missing = DF_out.loc[DF_out['BannerID'].isin(missing_emps)]
 check_missing['Name'].unique()
