@@ -831,10 +831,10 @@ def main():
         process_table_22(year_lookup=2023)
 
         # Process Table 23: Funding by Field
-        process_table_23(year_lookup=2021)
+        process_table_23(year_lookup=2023)
 
         # Process Table 79: Headcount and FTEs
-        process_table_79(year_lookup='2023')
+        process_table_79(year_lookup=2023)
 
         print("\n" + "="*80)
         print("All tables processed successfully!")
