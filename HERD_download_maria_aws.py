@@ -1,741 +1,851 @@
+"""
+HERD Data Processing Script 
+Downloads and processes Higher Education R&D expenditure data from NSF NCSES
+Handles Tables 21, 22, 23, and 79 from the HERD survey data
+
+Author: USD ResDataNexus Team
+Last Updated: 2026-01-21
+By: Jae Kim
+"""
+
 from datetime import datetime
 import re
 import requests
 import pandas as pd
 import numpy as np
-import difflib
 from io import BytesIO
 from HERD_functions import *
-from sqlalchemy import create_engine, text, bindparam
+from sqlalchemy import create_engine, text
 import sys
 import os
 from dotenv import load_dotenv
 
-load_dotenv()  # Loads variables from .env into environment
-
-# --- Connection Details ---
-db_host = os.getenv('herd_host')
-db_name = os.getenv('herd_database')
-db_user = os.getenv('herd_username')
-db_password = os.getenv('herd_password')
-db_port = os.getenv('herd_port', 3306)  # Default to 3306 if not set
-
-try:
-    connection_string = (
-        f"mariadb+mariadbconnector://{db_user}:{db_password}@"
-        f"{db_host}:{db_port}/{db_name}"
-    )
-    # Create a dictionary with the SSL arguments
-    ssl_args = {'ssl': True}
-    # Pass this dictionary to the connect_args parameter
-    engine = create_engine(
-        connection_string,
-        connect_args=ssl_args
-    )
-    print("SQLAlchemy engine created successfully.")
-except Exception as e:
-    print(f"Error creating engine: {e}")
-    sys.exit(1)
-
-conn = engine.connect()
-
-### Each year has a different 5-digit identifier
-## https://ncses.nsf.gov/surveys/higher-education-research-development/2023#data
-
-tabx_sub1 = "https://ncses.nsf.gov/pubs/nsf"
-tabx_sub2 = "/assets/data-tables/tables/nsf"
-
-year_id_lookup = 2023
-year_id = get_year_id(year_id_lookup)
-
-tabs = []
-
-####################################################################################################
-### Inserting/updating Table 21 data into database
-### Table 21: Higher education R&D expenditures, ranked by R&D expenditures
-tab21_link = tabx_dir1+str(year_id)+tabx_dir2+str(year_id)+"-tab021.xlsx"
-tabs.append(tab21_link)
-
-# The link should be of the file directly
-url = tabs[0]
-
-# Fetch file from URL
-# df is the data frame read from URL address
-r = requests.get(url)
-if r.status_code == 200:
-    excel_data= BytesIO(r.content)
-    df = pd.read_excel(excel_data)
-else:
-     print(f"Failed to download the file. Status code: {r.status_code}")
-
-# Find the likely header row
-comp_row = find_best_header(df.iloc[:21])
-head_rows = df.iloc[:(1+comp_row)]
-
-# convert non-records into a list
-rows_as_lists = [row.dropna().tolist() for _, row in head_rows.iterrows()]
-
-# The first cell of file is the title of the table
-tbl_title = rows_as_lists[0]
-
-# Find "Institution" - header of Table 21
-for i in range(len(rows_as_lists)):
-     row = rows_as_lists[i]
-     if any("rank" in str(cell).lower() for cell in row) and any("institution" in str(cell).lower() for cell in row):
-        print(row)
-        break
-
-# Index i is the header row
-top_row = rows_as_lists[i]
-
-# Rest of data frame is the records
-start_rec = df.iloc[(i+1):].copy()
-
-# Table has extra columns between legitimate columns
-# Find columns with more than half NaN values
-col_na_cnt = start_rec.isna().sum(axis=0)
-col_names = col_na_cnt[col_na_cnt>=len(start_rec)/2].index.tolist()
-
-# Drop the unnecessary columns
-start_rec.drop(columns= col_names, inplace=True)
-start_rec.columns = top_row
-
-# choose object columns (strings) to convert
-obj_cols = start_rec.iloc[:,1:].columns
-
-# Remove everything except digits, dot and minus; 2) replace empty -> NaN; 3) convert
-start_rec[obj_cols] = (
-    start_rec[obj_cols]
-    .astype(str)  # ensure string so replace works
-    .replace(r'[^0-9\.\-]', '', regex=True)   # remove commas, $ signs, letters, etc.
-    .replace('', np.nan)                      # empty -> NaN
-    .apply(pd.to_numeric, errors='coerce')    # convert to numeric, invalid -> NaN
-)
-
-#### Find relevant schools
-inst_names = start_rec['Institution'].unique().tolist()
-# Build one named placeholder per item
-placeholders = [f":n{i}" for i in range(len(inst_names))]
-in_clause = ", ".join(placeholders)
-params = {f"n{i}": v for i, v in enumerate(inst_names)}
-check_qry = text(f"SELECT inst_id, inst_name FROM institution WHERE inst_name IN ({in_clause})")
-inst_lookup = pd.read_sql_query(check_qry, con=engine, params=params)
-
-########## Need to find institution names with superscript
-inst_names_new, dup_inst = check_superscript_duplicates_single_list(inst_names)
-inst_names_merged = remove_superscript_duplicates_two_lists(inst_names_new, inst_lookup['inst_name'].tolist())
-inst_names = inst_names_merged[0]
-
-# normalize by lower/strip
-norm_inst = [re.sub(r'\s+', ' ', s).strip().lower() for s in inst_names]
-norm_db = [re.sub(r'\s+', ' ', s).strip().lower() for s in inst_lookup['inst_name']]  
-
-missing_inst = [orig for orig, norm in zip(inst_names, norm_inst) if norm not in set(norm_db)]
-
-### Insert institution records
-### UPDATE: need to check institution names
-### U. South Floridad vs U. South Floridae
-
-for i in range(len(missing_inst)):
-    qry = text("INSERT INTO institution (inst_name, last_update) VALUES (:inst_name, :today_date)")
-    record_to_insert = {"inst_name": missing_inst[i], "today_date": datetime.now()}
-    conn.execute(qry, record_to_insert)
-conn.commit()
-
-# Get updated institution IDs
-inst_lookup = pd.read_sql_query(check_qry, con=engine, params=params)
-
-#### Insert yearly funding records
-all_numeric = all(isinstance(c, (int, float)) for c in start_rec.columns)
-years_in_df = [c for c in start_rec.columns if isinstance(c, (int, float))]
-
-# #### Check year to insert
-# check_qry = text(f"SELECT UNIQUE(year) FROM herd_exp")
-# exp_year_lookup = pd.read_sql_query(check_qry, con=engine, params=params)
-
-
-years_in_df.insert(0, 'Institution')
-df_sub = start_rec.loc[:,years_in_df]
-
-for j in range(1,df_sub.shape[1]):
-    yearx = df_sub.columns[j]
-    df_year = df_sub[['Institution', yearx]]
-    for i in range(len(df_year)):
-        inst_x = df_year.iloc[i]['Institution']
-        if inst_x.lower() == 'all institutions':
-            continue
-        inst_id_val = inst_lookup[inst_lookup['inst_name'].str.lower() == inst_x.lower()]['inst_id'].values
-        check_qry = text("SELECT 1 FROM herd_exp WHERE year = :year AND inst_id = :inst_id_val")
-        check_result = conn.execute(check_qry, {"year": yearx, "inst_id_val": int(inst_id_val[0])})
-
-        if not check_result.fetchone():
-            qry = text("INSERT INTO herd_exp (inst_id, year, value) VALUES (:inst_id_val, :year, :amount)")
-            amount = None if pd.isna(float(df_year.iloc[i, 1])) else float(df_year.iloc[i, 1])
-            record_to_insert = {"inst_id_val": int(inst_id_val[0]), "year": yearx, "amount": amount}
-            conn.execute(qry, record_to_insert)
-            conn.commit()
-
-#### Insert yearly funding ranking records
-rank_year = max(years_in_df[1:])
-rank_year_df = start_rec.loc[:,['Institution','Rank']]
-rank_year_df = rank_year_df[~rank_year_df['Rank'].isna()]
-
-for i in range(len(rank_year_df)):
-    inst_x = rank_year_df.iloc[i]['Institution']
-    inst_id_val = inst_lookup[inst_lookup['inst_name'].str.lower() == inst_x.lower()]['inst_id'].values
-    check_qry = text("SELECT 1 FROM herd_rank WHERE year = :year AND inst_id = :inst_id_val")
-    check_result = conn.execute(check_qry, {"year": rank_year, "inst_id_val": int(inst_id_val[0])})
-
-    if not check_result.fetchone():
-        qry = text("INSERT INTO herd_rank (inst_id, year, rank) VALUES (:inst_id_val, :year, :val)")
-        rank = None if pd.isna(float(rank_year_df.iloc[i, 1])) else float(rank_year_df.iloc[i, 1])
-        record_to_insert = {"inst_id_val": int(inst_id_val[0]), "year": rank_year, "val": rank}
-        conn.execute(qry, record_to_insert)
-conn.commit()
-engine.dispose()
-
-####################################################################################################
-### Inserting/updating Table 22 data into database
-### Table 22: Higher education R&D expenditures, ranked by R&D expenditures, by source of funds
-
-year_id_lookup = 2023
-year_id = get_year_id(year_id_lookup)
-
-tabs = []
-
-### Table 22: Higher education R&D expenditures, ranked by R&D expenditures, by source of funds
-tab22_link = tabx_sub1+str(year_id)+tabx_sub2+str(year_id)+"-tab022.xlsx"
-tabs.append(tab22_link)
-
-# The link should be of the file directly
-url = tabs[0]
-
-r = requests.get(url)
-if r.status_code == 200:
-    excel_data= BytesIO(r.content)
-    df = pd.read_excel(excel_data)
-else:
-     print(f"Failed to download the file. Status code: {r.status_code}")
-
-# Find the likely header row
-comp_row = find_best_header(df.iloc[:21])
-head_rows = df.iloc[:(1+comp_row)]
-
-# convert non-records into a list
-rows_as_lists = [row.dropna().tolist() for _, row in head_rows.iterrows()]
-
-# The first cell of file is the title of the table
-tbl_title = rows_as_lists[0]
-
-# Find "Institution" - header of Table 22
-for i in range(len(rows_as_lists)):
-     row = rows_as_lists[i]
-     if any("rank" in str(cell).lower() for cell in row) and any("institution" in str(cell).lower() for cell in row):
-        print(row)
-        break
-     
-# Index i is the header row
-top_row = rows_as_lists[i]
-second_row = rows_as_lists[i+1]
-
-# Rest of data frame is the records
-start_rec = df.iloc[(i+2):].copy()
-
-# Table has extra columns between legitimate columns
-# Find columns with more than half NaN values
-col_na_cnt = start_rec.isna().sum(axis=0)
-col_names = col_na_cnt[col_na_cnt>=len(start_rec)/2].index.tolist()
-
-# Drop the unnecessary columns
-start_rec.drop(columns=col_names, inplace=True)
-
-# Combine top two header rows to get the correct header
-top_row_label = top_row[:3] + second_row
-start_rec.columns = top_row_label
-
-# choose object columns (strings) to convert
-obj_cols = start_rec.iloc[:,1:].columns
-
-# Remove everything except digits, dot and minus; 2) replace empty -> NaN; 3) convert
-start_rec[obj_cols] = (
-    start_rec[obj_cols]
-    .astype(str)  # ensure string so replace works
-    .replace(r'[^0-9\.\-]', '', regex=True)   # remove commas, $ signs, letters, etc.
-    .replace('', np.nan)                      # empty -> NaN
-    .apply(pd.to_numeric, errors='coerce')    # convert to numeric, invalid -> NaN
-)
-
-
-try:
-    connection_string = (
-        f"mariadb+mariadbconnector://{db_user}:{db_password}@"
-        f"{db_host}:{db_port}/{db_name}"
-    )
-    # Create a dictionary with the SSL arguments
-    ssl_args = {'ssl': True}
-    # Pass this dictionary to the connect_args parameter
-    engine = create_engine(
-        connection_string,
-        connect_args=ssl_args
-    )
-    print("SQLAlchemy engine created successfully.")
-except Exception as e:
-    print(f"Error creating engine: {e}")
-    sys.exit(1)
-
-conn = engine.connect()
-
-#### Find relevant schools
-inst_names = start_rec['Institution'].unique().tolist()
-# Build one named placeholder per item
-placeholders = [f":n{i}" for i in range(len(inst_names))]
-in_clause = ", ".join(placeholders)
-params = {f"n{i}": v for i, v in enumerate(inst_names)}
-check_qry = text(f"SELECT inst_id, inst_name FROM institution WHERE inst_name IN ({in_clause})")
-inst_lookup = pd.read_sql_query(check_qry, con=engine, params=params)
-
-########## Need to find institution names with superscript
-inst_names_new, dup_inst = check_superscript_duplicates_single_list(inst_names)
-inst_names_merged = remove_superscript_duplicates_two_lists(inst_names_new, inst_lookup['inst_name'].tolist())
-inst_names = inst_names_merged[0]
-
-# normalize by lower/strip
-norm_inst = [re.sub(r'\s+', ' ', s).strip().lower() for s in inst_names]
-norm_db = [re.sub(r'\s+', ' ', s).strip().lower() for s in inst_lookup['inst_name']]  
-
-missing_inst = [orig for orig, norm in zip(inst_names, norm_inst) if norm not in set(norm_db)]
-
-### Insert institution records
-### UPDATE: need to check institution names
-### U. South Floridad vs U. South Floridae
-
-for i in range(len(missing_inst)):
-    qry = text("INSERT INTO institution (inst_name, last_update) VALUES (:inst_name, :today_date)")
-    record_to_insert = {"inst_name": missing_inst[i], "today_date": datetime.now()}
-    conn.execute(qry, record_to_insert)
-conn.commit()
-
-# Get updated institution IDs
-inst_lookup = pd.read_sql_query(check_qry, con=engine, params=params)
-
-#### Insert yearly funding records
-col_exclude = ["Rank","All R&D expenditures"]
-col_in_df = [c for c in start_rec.columns if c not in col_exclude]
-df_sub = start_rec.loc[:,col_in_df]
-
-### Check for any new sources of funding, update herd_fund_source_cat table if necessary
-check_sources = update_fund_source_cat(col_in_df, engine)
-if check_sources==1:
-    print("New fund fields added to herd_fund_field table.")
-else:
-    print("No new fund fields.")
-
-# Get corresponding year
-yearx = int(get_key_from_value(year_id))
-
-for i in range(len(df_sub)):
-    inst_x = df_sub.iloc[i,:]
-    for j in range(1,df_sub.shape[1]):
-        source_name = df_sub.columns[j]
-        source_name = source_name.strip().lower()
-        get_source_id_qry = text("SELECT fund_source_id FROM herd_fund_source_cat WHERE lower(fund_source) = :source_input")
-        source_id = pd.read_sql_query(get_source_id_qry, con=engine, params={"source_input": source_name})
-        source_id = source_id['fund_source_id'].values[0]
-        
-        inst_id_val = inst_lookup[inst_lookup['inst_name'].str.lower() == inst_x['Institution'].lower()]['inst_id'].values
-        
-        check_qry = text("SELECT 1 FROM herd_fund_source WHERE year = :year AND inst_id = :inst_id_val AND fund_source_id = :fund_agency")
-        check_result = conn.execute(check_qry, {"year": yearx, "inst_id_val": int(inst_id_val[0]), "fund_agency": source_id})
-        if not check_result.fetchone():
-            qry = text("INSERT INTO herd_fund_source (inst_id, fund_source_id, year, value) VALUES (:inst_id_val, :fund_agency, :year, :amount)")
-            amount = None if pd.isna(float(inst_x.iloc[j])) else float(inst_x.iloc[j])
-            record_to_insert = {"inst_id_val": int(inst_id_val[0]), "fund_agency": source_id, "year": yearx, "amount": amount}
-            conn.execute(qry, record_to_insert)
-conn.commit()
-engine.dispose()
-
-
-####################################################################################################
-### Inserting/updating Table 23 data into database
-### Table 23: Higher education R&D expenditures, ranked by all R&D expenditures
-
-year_id_lookup = 2021
-year_id = get_year_id(year_id_lookup)
-
-tabs = []
-
-### Table 23: Higher education R&D expenditures, ranked by all R&D expenditures, by R&D field
-tab23_link = tabx_sub1+str(year_id)+tabx_sub2+str(year_id)+"-tab023.xlsx"
-tabs.append(tab23_link)
-
-# The link should be of the file directly
-url = tabs[0]
-
-# Table 23
-r = requests.get(url)
-if r.status_code == 200:
-    excel_data= BytesIO(r.content)
-    df = pd.read_excel(excel_data)
-else:
-     print(f"Failed to download the file. Status code: {r.status_code}")
-
-# Find the likely header row
-comp_row = find_best_header(df.iloc[:5])
-head_rows = df.iloc[:(1+comp_row)]
-
-# convert non-records into a list
-rows_as_lists = [row.dropna().tolist() for _, row in head_rows.iterrows()]
-
-# The first cell of file is the title of the table
-tbl_title = rows_as_lists[0]
-
-# Find "Institution" - header of Table 23
-for i in range(len(rows_as_lists)):
-     row = rows_as_lists[i]
-     if any("rank" in str(cell).lower() for cell in row) and any("institution" in str(cell).lower() for cell in row):
-        print(row)
-        break
-     
-# Index i is the header row
-top_row = rows_as_lists[i]
-
-# Rest of data frame is the records
-start_rec = df.iloc[(i+1):].copy()
-
-# Table has extra columns between legitimate columns
-# Find columns with more than half NaN values
-col_na_cnt = start_rec.isna().sum(axis=0)
-col_names = col_na_cnt[col_na_cnt>=len(start_rec)/2].index.tolist()
-
-# Drop the unnecessary columns
-start_rec.drop(columns=col_names, inplace=True)
-
-# Assign header
-start_rec.columns = top_row
-
-# choose object columns (strings) to convert
-obj_cols = start_rec.iloc[:,1:].columns
-
-# Remove everything except digits, dot and minus; 2) replace empty -> NaN; 3) convert
-start_rec[obj_cols] = (
-    start_rec[obj_cols]
-    .astype(str)  # ensure string so replace works
-    .replace(r'[^0-9\.\-]', '', regex=True)   # remove commas, $ signs, letters, etc.
-    .replace('', np.nan)                      # empty -> NaN
-    .apply(pd.to_numeric, errors='coerce')    # convert to numeric, invalid -> NaN
-)
-
-try:
-    connection_string = (
-        f"mariadb+mariadbconnector://{db_user}:{db_password}@"
-        f"{db_host}:{db_port}/{db_name}"
-    )
-    # Create a dictionary with the SSL arguments
-    ssl_args = {'ssl': True}
-    # Pass this dictionary to the connect_args parameter
-    engine = create_engine(
-        connection_string,
-        connect_args=ssl_args
-    )
-    print("SQLAlchemy engine created successfully.")
-except Exception as e:
-    print(f"Error creating engine: {e}")
-    sys.exit(1)
-
-conn = engine.connect()
-
-#### Find relevant schools
-inst_names = start_rec['Institution'].unique().tolist()
-# Build one named placeholder per item
-placeholders = [f":n{i}" for i in range(len(inst_names))]
-in_clause = ", ".join(placeholders)
-params = {f"n{i}": v for i, v in enumerate(inst_names)}
-check_qry = text(f"SELECT inst_id, inst_name FROM institution WHERE inst_name IN ({in_clause})")
-inst_lookup = pd.read_sql_query(check_qry, con=engine, params=params)
-
-########## Need to find institution names with superscript
-inst_names_new, dup_inst = check_superscript_duplicates_single_list(inst_names)
-inst_names_merged = remove_superscript_duplicates_two_lists(inst_names_new, inst_lookup['inst_name'].tolist())
-inst_names = inst_names_merged[0]
-
-# normalize by lower/strip
-norm_inst = [re.sub(r'\s+', ' ', s).strip().lower() for s in inst_names]
-norm_db = [re.sub(r'\s+', ' ', s).strip().lower() for s in inst_lookup['inst_name']]  
-
-missing_inst = [orig for orig, norm in zip(inst_names, norm_inst) if norm not in set(norm_db)]
-
-### Insert institution records
-### UPDATE: need to check institution names
-### U. South Floridad vs U. South Floridae
-
-for i in range(len(missing_inst)):
-    qry = text("INSERT INTO institution (inst_name, last_update) VALUES (:inst_name, :today_date)")
-    record_to_insert = {"inst_name": missing_inst[i], "today_date": datetime.now()}
-    conn.execute(qry, record_to_insert)
-conn.commit()
-
-# Get updated institution IDs
-inst_lookup = pd.read_sql_query(check_qry, con=engine, params=params)
-
-#### Insert yearly funding records
-col_exclude = ["Rank","All R&D expenditures"]
-col_in_df = [c for c in start_rec.columns if c not in col_exclude]
-df_sub = start_rec.loc[:,col_in_df]
-
-#### Check for any new R&D fields, update herd_fund_field table if necessary
-check_fields = update_fund_field(col_in_df, engine)
-if check_fields==1:
-    print("New fund fields added to herd_fund_field table.")
-else:
-    print("No new fund fields.")
-    
-# Get corresponding year
-yearx = int(get_key_from_value( year_id))
-
-for i in range(len(df_sub)):
-    inst_x = df_sub.iloc[i,:]
-    for j in range(1,df_sub.shape[1]):
-        field_name = df_sub.columns[j]
-        field_name = field_name.strip().lower()    
-        get_field_id_qry = text("SELECT field_id FROM herd_field WHERE field_name = :field_input")
-        
-        field_id = pd.read_sql_query(get_field_id_qry, con=engine, params={"field_input": field_name})
-        field_id = field_id['field_id'].values[0]
-        inst_id_val = inst_lookup[inst_lookup['inst_name'].str.lower() == inst_x['Institution'].lower()]['inst_id'].values
-        
-        check_qry = text("SELECT 1 FROM herd_fund_field WHERE year = :year AND inst_id = :inst_id_val AND field_id = :field")
-        check_result = conn.execute(check_qry, {"year": yearx, "inst_id_val": int(inst_id_val[0]), "field": int(field_id)})
-        if not check_result.fetchone():
-            qry = text("INSERT INTO herd_fund_field (inst_id, field_id, year, value) VALUES (:inst_id_val, :field_id_in, :year, :amount)")
-            amount = None if pd.isna(float(inst_x.iloc[j])) else float(inst_x.iloc[j])
-            record_to_insert = {"inst_id_val": int(inst_id_val[0]), "field_id_in": int(field_id), "year": yearx, "amount": amount}
-            conn.execute(qry, record_to_insert)
-conn.commit()
-engine.dispose()
-
-
-####################################################################################################
-### Inserting/updating Table 79 data into database
-### Table 79: Headcount and FTEs of R&D personnel at higher education institutions, by state, institutional control, institution, and personnel function
-year_id_lookup = {'2023': 25314, '2022': 24308, '2021': 23304}
-
-"""
-This table started in 2023!!!!
-"""
-year_id = year_id_lookup['2023']
-
-tabs = []
-
-### Table 79: Headcount and FTEs of R&D personnel at higher education institutions, by state, institutional control, institution, and personnel function
-tab79_link = tabx_dir1+str(year_id)+tabx_dir2+str(year_id)+"-tab079.xlsx"
-tabs.append(tab79_link)
-
-# The link should be of the file directly
-url = tabs[0]
-
-# Fetch file from URL
-# df is the data frame read from URL address
-r = requests.get(url)
-if r.status_code == 200:
-    excel_data= BytesIO(r.content)
-    df = pd.read_excel(excel_data)
-else:
-     print(f"Failed to download the file. Status code: {r.status_code}")
-
-# Find the likely header row
-comp_row = find_best_header(df.iloc[:5])
-head_rows = df.iloc[:(1+comp_row)]
-
-# convert non-records into a list
-rows_as_lists = [row.dropna().tolist() for _, row in head_rows.iterrows()]
-
-# The first cell of file is the title of the table
-tbl_title = rows_as_lists[0]
-
-# Find "Institution" - header of Table 79
-for i in range(len(rows_as_lists)):
-     row = rows_as_lists[i]
-     if any("institutional control" in str(cell).lower() for cell in row) and any("and institution" in str(cell).lower() for cell in row):
-        print(row)
-        break
-     
-# Index i is the header row
-top_row = rows_as_lists[i]
-second_row = rows_as_lists[i+1]
-
-# Rest of data frame is the records
-start_rec = df.iloc[(i+2):].copy()
-
-# Table has extra columns between legitimate columns
-# Find columns with more than half NaN values
-col_na_cnt = start_rec.isna().sum(axis=0)
-col_names = col_na_cnt[col_na_cnt>=len(start_rec)/2].index.tolist()
-
-col_names_imputed_cnt = (start_rec=="i").sum(axis=0)
-col_names_imputed = col_names_imputed_cnt[col_names_imputed_cnt>0].index.tolist()
-
-col_names_merge = [col for col in col_names if col in col_names_imputed]
-
-# Drop the unnecessary columns
-start_rec.drop(columns=col_names, inplace=True)
-
-### Connect to database
-try:
-    connection_string = (
-        f"mariadb+mariadbconnector://{db_user}:{db_password}@"
-        f"{db_host}:{db_port}/{db_name}"
-    )
-    # Create a dictionary with the SSL arguments
-    ssl_args = {'ssl': True}
-    # Pass this dictionary to the connect_args parameter
-    engine = create_engine(
-        connection_string,
-        connect_args=ssl_args
-    )
-    print("SQLAlchemy engine created successfully.")
-except Exception as e:
-    print(f"Error creating engine: {e}")
-    sys.exit(1)
-
-conn = engine.connect()
-
-# link categories to field names
-col_x = top_row[1:]
-
-#### Check for any new R&D fields, update herd_fund_field table if necessary
-check_cat = update_headcount_cat(col_x, engine)
-if check_cat==1:
-    print("New headcount category added to herd_headcount_cat table.")
-else:
-    print("No new headcount category.")
-
-headcount_counter = 0
-fte_counter = 0
-for idx in range(len(second_row)):
-    if second_row[idx]=="Headcount":
-        cat_check_qry = text(f"SELECT headcount_cat_id FROM herd_headcount_cat WHERE headcount_cat = '{col_x[headcount_counter]}'")
-        cat_id_found = pd.read_sql_query(cat_check_qry, con=engine)
-        cat_id_found = cat_id_found['headcount_cat_id'][0]
-        second_row[idx] = second_row[idx] + "_" + str(cat_id_found)
-        headcount_counter += 1
-    elif second_row[idx]=="FTEs":
-        cat_check_qry = text(f"SELECT headcount_cat_id FROM herd_headcount_cat WHERE headcount_cat = '{col_x[fte_counter]}'")
-        cat_id_found = pd.read_sql_query(cat_check_qry, con=engine)
-        cat_id_found = cat_id_found['headcount_cat_id'][0]
-        second_row[idx] = second_row[idx] + "_" + str(cat_id_found)
-        fte_counter += 1
-    
-# Assign header
-start_rec.columns = ["Item"]+second_row
-
-# Remove everything except digits, dot and minus; 2) replace empty -> NaN; 3) convert
-for j in range(1, start_rec.shape[1]):  # skip first column (index 0)
-    start_rec.iloc[:, j] = (
-        start_rec.iloc[:, j]
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Database connection credentials
+DB_CONFIG = {
+    'host': os.getenv('herd_host_test'),
+    'database': os.getenv('herd_database_test'),
+    'user': os.getenv('herd_username_test'),
+    'password': os.getenv('herd_password_test'),
+    'port': os.getenv('herd_port_test', 3306)
+}
+
+# NSF data URL templates
+TABX_DIR1 = "https://ncses.nsf.gov/pubs/nsf"
+TABX_DIR2 = "/assets/data-tables/tables/nsf"
+
+
+# ============================================================================
+# DATABASE CONNECTION FUNCTIONS
+# ============================================================================
+
+def create_db_engine():
+    """
+    Create SQLAlchemy database engine with SSL connection.
+
+    Returns:
+        engine: SQLAlchemy engine object configured for MariaDB with SSL
+
+    Raises:
+        SystemExit: If engine creation fails
+    """
+    try:
+        connection_string = (
+            f"mariadb+mariadbconnector://{DB_CONFIG['user']}:{DB_CONFIG['password']}@"
+            f"{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
+        )
+        ssl_args = {'ssl': True}
+        engine = create_engine(connection_string, connect_args=ssl_args)
+        print("SQLAlchemy engine created successfully.")
+        return engine
+    except Exception as e:
+        print(f"Error creating engine: {e}")
+        sys.exit(1)
+
+# ============================================================================
+# DATA DOWNLOAD AND PARSING FUNCTIONS
+# ============================================================================
+def build_table_url(year_id, table_number):
+    """
+    Construct NSF data table URL.
+
+    Args:
+        year_id (int): NSF year identifier (e.g., 25314 for 2023)
+        table_number (int): Table number (21, 22, 23, 79)
+
+    Note: Each year has a different 5-digit identifier
+
+    Returns:
+        Complete URL to Excel file
+    """
+    table_str = f"{table_number:03d}"  # Format as 3-digit number with leading zeros
+    return f"{TABX_DIR1}{year_id}{TABX_DIR2}{year_id}-tab{table_str}.xlsx"
+
+def download_excel_from_url(url):
+    """
+    Download Excel file from URL and load into pandas DataFrame.
+
+    Args:
+        url (str): URL of the Excel file
+
+    Returns:
+        df: pandas DataFrame containing the Excel data
+
+    Raises:
+        SystemExit: If download fails
+    """
+    r = requests.get(url)
+    if r.status_code == 200:
+        excel_data = BytesIO(r.content)
+        df = pd.read_excel(excel_data)
+        print(f"Successfully downloaded data from URL")
+        return df
+    else:
+        print(f"Failed to download the file. Status code: {r.status_code}")
+        sys.exit(1)
+
+def parse_excel_headers(df, search_terms, max_rows=21):
+    """
+    Parse Excel file to find header row and extract metadata.
+
+    Args:
+        df: raw pandas DataFrame from Excel file
+        search_terms: list of terms to identify the header row
+        max_rows: maximum rows to search for header
+
+    Returns:
+        tuple: (header_row_index, title, rows_as_lists)
+            header_row_index: Index of the header row
+            title: Table title from first row
+            rows_as_lists: All header rows as lists
+    """
+    # Find the likely header row based on non-null count
+    comp_row = find_best_header(df.iloc[:max_rows])
+    head_rows = df.iloc[:(1+comp_row)]
+
+    # Convert header rows to list format
+    rows_as_lists = [row.dropna().tolist() for _, row in head_rows.iterrows()]
+    tbl_title = rows_as_lists[0]
+
+    # Find the actual header row based on search terms
+    for i in range(len(rows_as_lists)):
+        row = rows_as_lists[i]
+        if all(any(term in str(cell).lower() for cell in row) for term in search_terms):
+            print(f"Found header row at index {i}")
+            return i, tbl_title, rows_as_lists
+
+    raise ValueError(f"Could not find header row with terms: {search_terms}")
+
+# ============================================================================
+# DATA CLEANING FUNCTIONS
+# ============================================================================
+
+def clean_dataframe_columns(df):
+    """
+    Remove columns with more than 50% NaN values.
+    These are typically formatting columns in NSF Excel files.
+
+    Args:
+        df: pandas DataFrame - converted from downloaded Excel table
+
+    Returns:
+        df_cleaned: pandas DataFrame with sparse columns removed
+    """
+    col_na_cnt = df.isna().sum(axis=0)
+    col_names = col_na_cnt[col_na_cnt >= len(df)/2].index.tolist()
+    df_cleaned = df.drop(columns=col_names)
+    print(f"Removed {len(col_names)} sparse columns")
+    return df_cleaned
+
+
+def convert_currency_columns_to_numeric(df, exclude_first_col=True):
+    """
+    Convert currency/numeric columns from string to numeric format.
+    Removes commas, dollar signs, and other non-numeric characters.
+
+    Args:
+        df: pandas DataFrame 
+        exclude_first_col: Whether to exclude first column (typically institution names)
+
+    Returns:
+        df: pandas DataFrame with numeric columns converted
+    """
+    if exclude_first_col:
+        obj_cols = df.iloc[:, 1:].columns
+    else:
+        obj_cols = df.columns
+
+    df[obj_cols] = (
+        df[obj_cols]
         .astype(str)
-        .str.replace(r'[^0-9]', '', regex=True)
+        .replace(r'[^0-9\.\-]', '', regex=True)  # Keep only digits, dots, minus
         .replace('', np.nan)
         .apply(pd.to_numeric, errors='coerce')
     )
 
-#### Find relevant schools
-inst_names = start_rec['Item'].unique().tolist()
-# Build one named placeholder per item
-placeholders = [f":n{i}" for i in range(len(inst_names))]
-in_clause = ", ".join(placeholders)
-params = {f"n{i}": v for i, v in enumerate(inst_names)}
-check_qry = text(f"SELECT inst_id, inst_name FROM institution WHERE inst_name IN ({in_clause})")
-inst_lookup = pd.read_sql_query(check_qry, con=engine, params=params)
+    return df
 
-inst_names_new, dup_inst = check_superscript_duplicates_single_list(inst_names)
-inst_names_merged = remove_superscript_duplicates_two_lists(inst_names_new, inst_lookup['inst_name'].tolist())
-inst_names = inst_names_merged[0]
+# ============================================================================
+# INSTITUTION MANAGEMENT FUNCTIONS
+# ============================================================================
 
-# normalize by lower/strip
-norm_inst = [re.sub(r'\s+', ' ', s).strip().lower() for s in inst_names]
-norm_db = [re.sub(r'\s+', ' ', s).strip().lower() for s in inst_lookup['inst_name']]  
+def get_or_create_institutions(inst_names, engine):
+    """
+    Check for institutions in database and insert missing ones.
+    Handles superscript duplicates and normalizes institution names.
 
-missing_inst = [orig for orig, norm in zip(inst_names, norm_inst) if norm not in set(norm_db)]
+    Args:
+        inst_names: List of institution names from data file
+        engine: SQLAlchemy engine
 
-####################################
-### Initial insert of states into herd_state table
-"""
-states = ['United States', 'Alabama', 'Public', 'Private', 'Alaska', 'Arizona', 'Arkansas', 'California', 
-          'Colorado', 'Connecticut', 'Delaware', 'District of Columbia', 'Florida', 'Georgia', 'Hawaii', 
-          'Idaho', 'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 
-          'Massachusetts', 'Michigan', 'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 
-          'New Hampshire', 'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 
-          'Ohio', 'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota', 
-          'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia', 'Wisconsin', 
-          'Wyoming', 'Guam', 'Puerto Rico', 'Virgin Islands']
-for i in range(len(states)):
-    qry = text("INSERT INTO herd_state (state_name, last_update) VALUES (:state, :today_date)")
-    record_to_insert = {"state": states[i], "today_date": datetime.now()}
-    conn.execute(qry, record_to_insert)
-conn.commit()
-"""
-########################################
+    Returns:
+        inst_lookup: pandas DataFrame: Institution lookup table with inst_id and inst_name
+    """
+    conn = engine.connect()
 
-check_state_qry = text(f"SELECT state_name FROM herd_state")
-state_lookup = pd.read_sql_query(check_state_qry, con=engine)
-state_lookup = state_lookup['state_name'].tolist()
-missing_inst = [inst for inst in missing_inst if inst not in state_lookup]
+    # Build parameterized query to check existing institutions
+    placeholders = [f":n{i}" for i in range(len(inst_names))]
+    in_clause = ", ".join(placeholders)
+    params = {f"n{i}": v for i, v in enumerate(inst_names)}
+    check_qry = text(f"SELECT inst_id, inst_name FROM institution WHERE inst_name IN ({in_clause})")
+    inst_lookup = pd.read_sql_query(check_qry, con=engine, params=params)
 
-### Insert institution records
-### UPDATE: need to check institution names
-### U. South Floridad vs U. South Floridae
+    # Handle superscript duplicates (e.g., "University of XYZ" vs "University of XYZ¹")
+    inst_names_new, dup_inst = check_superscript_duplicates_single_list(inst_names)
+    inst_names_merged = remove_superscript_duplicates_two_lists(inst_names_new, inst_lookup['inst_name'].tolist())
+    inst_names = inst_names_merged[0]
 
-for i in range(len(missing_inst)):
-    qry = text("INSERT INTO institution (inst_name, last_update) VALUES (:inst_name, :today_date)")
-    record_to_insert = {"inst_name": missing_inst[i], "today_date": datetime.now()}
-    conn.execute(qry, record_to_insert)
-conn.commit()
+    # Normalize names for comparison (lowercase, strip whitespace)
+    norm_inst = [re.sub(r'\s+', ' ', s).strip().lower() for s in inst_names]
+    norm_db = [re.sub(r'\s+', ' ', s).strip().lower() for s in inst_lookup['inst_name']]
 
-# Get updated institution IDs
-inst_lookup = pd.read_sql_query(check_qry, con=engine, params=params)
+    # Find institutions not in database
+    missing_inst = [orig for orig, norm in zip(inst_names, norm_inst) if norm not in set(norm_db)]
 
-# Get updated state IDs
-state_lookup = pd.read_sql_query(check_state_qry, con=engine)
+    # Insert missing institutions
+    if missing_inst:
+        for inst_name in missing_inst:
+            qry = text("INSERT INTO institution (inst_name, last_update) VALUES (:inst_name, :today_date)")
+            record_to_insert = {"inst_name": inst_name, "today_date": datetime.now()}
+            conn.execute(qry, record_to_insert)
+        conn.commit()
+        print(f"Inserted {len(missing_inst)} new institutions")
 
-#### Insert yearly funding records
-df_sub = start_rec.copy()
+        # Refresh lookup table with newly inserted institutions
+        inst_lookup = pd.read_sql_query(check_qry, con=engine, params=params)
 
-# Get corresponding year
-yearx = int(get_key_from_value( year_id))
-state_rec = 0
-for i in range(len(df_sub)):
-    inst_x = df_sub.iloc[i,:]
-    # Check if record is institutiton or state
-    inst_check_qry = text("SELECT 1 FROM institution WHERE lower(inst_name) = :inst_name")
-    inst_check_result = conn.execute(inst_check_qry, {"inst_name": inst_x['Item'].lower()})
-    if not inst_check_result.fetchone():
-        state_check_qry = text(f"SELECT state_id FROM herd_state WHERE lower(state_name) = '{inst_x['Item'].lower()}'")
-        state_id_found = pd.read_sql_query(state_check_qry, con=engine)
-        state_id_found = state_id_found['state_id'][0]
-        state_rec = 1
+    conn.close()
+    return inst_lookup
+
+# ============================================================================
+# DATA INSERTION FUNCTIONS - TABLE 21
+# ============================================================================
+
+def insert_expenditure_data(df, inst_lookup, engine):
+    """
+    Insert R&D expenditure data into herd_exp table.
+    Handles multiple years of expenditure data per institution.
+
+    Args:
+        df: pandas DataFrame with 'Institution' column and year columns (numeric)
+        inst_lookup: Institution lookup table (pandas DataFrame) with inst_id and inst_name
+        engine: SQLAlchemy engine
+    
+    Return:
+        None - message to indicate the number of rows inserted
+    """
+    conn = engine.connect()
+
+    # Identify year columns (columns with numeric names)
+    years_in_df = [c for c in df.columns if isinstance(c, (int, float))]
+    years_in_df.insert(0, 'Institution')
+    df_sub = df.loc[:, years_in_df]
+
+    inserted_count = 0
+
+    # Insert data for each year
+    for j in range(1, df_sub.shape[1]):
+        yearx = df_sub.columns[j]
+        df_year = df_sub[['Institution', yearx]]
+
+        for i in range(len(df_year)):
+            inst_x = df_year.iloc[i]['Institution']
+
+            # Skip aggregate rows
+            if inst_x.lower() == 'all institutions':
+                continue
+
+            # Get institution ID
+            inst_id_val = inst_lookup[inst_lookup['inst_name'].str.lower() == inst_x.lower()]['inst_id'].values
+            if len(inst_id_val) == 0:
+                print(f"Warning: Institution '{inst_x}' not found in lookup table")
+                continue
+
+            # Check if record already exists
+            check_qry = text("SELECT 1 FROM herd_exp WHERE year = :year AND inst_id = :inst_id_val")
+            check_result = conn.execute(check_qry, {"year": yearx, "inst_id_val": int(inst_id_val[0])})
+
+            # Insert if not exists
+            if not check_result.fetchone():
+                qry = text("INSERT INTO herd_exp (inst_id, year, value) VALUES (:inst_id_val, :year, :amount)")
+                amount = None if pd.isna(float(df_year.iloc[i, 1])) else float(df_year.iloc[i, 1])
+                record_to_insert = {"inst_id_val": int(inst_id_val[0]), "year": yearx, "amount": amount}
+                conn.execute(qry, record_to_insert)
+                inserted_count += 1
+
+    conn.commit()
+    conn.close()
+    print(f"Inserted {inserted_count} expenditure records across {len(years_in_df)-1} years")
+
+
+def insert_ranking_data(df, inst_lookup, year, engine):
+    """
+    Insert R&D ranking data into herd_rank table.
+
+    Args:
+        df: pandas DataFrame with 'Institution' and 'Rank' columns
+        inst_lookup: Institution lookup table
+        year: Year for the ranking data
+        engine: SQLAlchemy engine
+    """
+    conn = engine.connect()
+
+    # Filter to rows with ranking data
+    rank_year_df = df.loc[:, ['Institution', 'Rank']]
+    rank_year_df = rank_year_df[~rank_year_df['Rank'].isna()]
+
+    inserted_count = 0
+
+    for i in range(len(rank_year_df)):
+        inst_x = rank_year_df.iloc[i]['Institution']
+        inst_id_val = inst_lookup[inst_lookup['inst_name'].str.lower() == inst_x.lower()]['inst_id'].values
+
+        if len(inst_id_val) == 0:
+            print(f"Warning: Institution '{inst_x}' not found in lookup table")
+            continue
+
+        # Check if record already exists
+        check_qry = text("SELECT 1 FROM herd_rank WHERE year = :year AND inst_id = :inst_id_val")
+        check_result = conn.execute(check_qry, {"year": year, "inst_id_val": int(inst_id_val[0])})
+
+        # Insert if not exists
+        if not check_result.fetchone():
+            qry = text("INSERT INTO herd_rank (inst_id, year, rank) VALUES (:inst_id_val, :year, :val)")
+            rank = None if pd.isna(float(rank_year_df.iloc[i, 1])) else float(rank_year_df.iloc[i, 1])
+            record_to_insert = {"inst_id_val": int(inst_id_val[0]), "year": year, "val": rank}
+            conn.execute(qry, record_to_insert)
+            inserted_count += 1
+
+    conn.commit()
+    conn.close()
+    print(f"Inserted {inserted_count} ranking records")
+
+def process_table_21(year_lookup):
+    """
+    Process Table 21: Higher education R&D expenditures, ranked by R&D expenditures.
+
+    Args:
+        year_lookup: year to process (e.g., 2023)
+    """
+    print(f"\n{'='*80}")
+    print(f"Processing Table 21 for year {year_lookup}")
+    print(f"{'='*80}\n")
+
+    # Get year ID and build URL
+    year_id = get_year_id(year_lookup)
+    url = build_table_url(year_id, 21)
+
+    # Download and parse Excel file
+    df = download_excel_from_url(url)
+    header_idx, title, rows_as_lists = parse_excel_headers(df, ["rank", "institution"])
+
+    # Extract header and data
+    top_row = rows_as_lists[header_idx]
+    start_rec = df.iloc[(header_idx + 1):].copy()
+
+    # Clean and prepare data
+    start_rec = clean_dataframe_columns(start_rec)
+    start_rec.columns = top_row
+    start_rec = convert_currency_columns_to_numeric(start_rec)
+
+    # Database operations
+    engine = create_db_engine()
+    inst_names = start_rec['Institution'].unique().tolist()
+    inst_lookup = get_or_create_institutions(inst_names, engine)
+
+    # Insert expenditure and ranking data
+    insert_expenditure_data(start_rec, inst_lookup, engine)
+
+    years_in_df = [c for c in start_rec.columns if isinstance(c, (int, float))]
+    rank_year = max(years_in_df)
+    insert_ranking_data(start_rec, inst_lookup, rank_year, engine)
+
+    engine.dispose()
+    print(f"Table 21 processing complete\n")
+
+# ============================================================================
+# DATA INSERTION FUNCTIONS - TABLE 22
+# ============================================================================
+
+def insert_funding_source_data(df, inst_lookup, year, engine):
+    """
+    Insert R&D funding by source data into herd_fund_source table.
+
+    Args:
+        df (pd.DataFrame): DataFrame with 'Institution' column and funding source columns
+        inst_lookup (pd.DataFrame): Institution lookup table
+        year (int): Year for the data
+        engine: SQLAlchemy engine
+    """
+    conn = engine.connect()
+
+    # Exclude metadata columns
+    col_exclude = ["Rank", "All R&D expenditures"]
+    col_in_df = [c for c in df.columns if c not in col_exclude]
+    df_sub = df.loc[:, col_in_df]
+
+    # Update fund source categories if new sources found
+    check_sources = update_fund_source_cat(col_in_df, engine)
+    if check_sources == 1:
+        print("New fund sources added to herd_fund_source_cat table")
     else:
-        inst_check_qry = text(f'SELECT inst_id FROM institution WHERE lower(inst_name) = "{inst_x['Item'].lower()}"')
-        inst_id_found = pd.read_sql_query(inst_check_qry, con=engine)
-        inst_id_found = inst_id_found['inst_id'][0]
-        state_rec = 0
-    for j in range(1,df_sub.shape[1]):
-        field_name = df_sub.columns[j]
-        cat_id_check = field_name.split("_")[1]
-        if field_name.split("_")[0].lower()=="headcount":
-            fte_field = 0
-        else:
-            fte_field = 1
-        
-        if state_rec == 1:
-            hcnt_qry = text("INSERT INTO herd_headcount_state (headcount_cat_id, state_id, fte, year, value) VALUES (:cat_id_val, :state_id_val, :fte_val, :year_val, :amount)")
-            amount = None if pd.isna(float(inst_x.iloc[j])) else float(inst_x.iloc[j])
-            record_to_insert = {"cat_id_val": int(cat_id_check), "state_id_val": int(state_id_found), "fte_val": int(fte_field), "year_val": yearx, "amount": amount}
-            conn.execute(hcnt_qry, record_to_insert)
-        else:
-            hcnt_qry = text("INSERT INTO herd_headcount (headcount_cat_id, inst_id, fte, year, value) VALUES (:cat_id_val, :inst_id_val, :fte_val, :year_val, :amount)")
-            amount = None if pd.isna(float(inst_x.iloc[j])) else float(inst_x.iloc[j])
-            record_to_insert = {"cat_id_val": int(cat_id_check), "inst_id_val": int(inst_id_found), "fte_val": int(fte_field), "year_val": yearx, "amount": amount}
-            conn.execute(hcnt_qry, record_to_insert)
-conn.commit()
-engine.dispose()
+        print("No new fund sources found")
 
+    inserted_count = 0
+
+    # Insert data for each institution and funding source
+    for i in range(len(df_sub)):
+        inst_x = df_sub.iloc[i, :]
+
+        for j in range(1, df_sub.shape[1]):
+            source_name = df_sub.columns[j].strip().lower()
+
+            # Get funding source ID
+            get_source_id_qry = text("SELECT fund_source_id FROM herd_fund_source_cat WHERE lower(fund_source) = :source_input")
+            source_id = pd.read_sql_query(get_source_id_qry, con=engine, params={"source_input": source_name})
+            source_id = source_id['fund_source_id'].values[0]
+
+            # Get institution ID
+            inst_id_val = inst_lookup[inst_lookup['inst_name'].str.lower() == inst_x['Institution'].lower()]['inst_id'].values
+
+            if len(inst_id_val) == 0:
+                continue
+
+            # Check if record already exists
+            check_qry = text("SELECT 1 FROM herd_fund_source WHERE year = :year AND inst_id = :inst_id_val AND fund_source_id = :fund_agency")
+            check_result = conn.execute(check_qry, {"year": year, "inst_id_val": int(inst_id_val[0]), "fund_agency": source_id})
+
+            # Insert if not exists
+            if not check_result.fetchone():
+                qry = text("INSERT INTO herd_fund_source (inst_id, fund_source_id, year, value) VALUES (:inst_id_val, :fund_agency, :year, :amount)")
+                amount = None if pd.isna(float(inst_x.iloc[j])) else float(inst_x.iloc[j])
+                record_to_insert = {"inst_id_val": int(inst_id_val[0]), "fund_agency": source_id, "year": year, "amount": amount}
+                conn.execute(qry, record_to_insert)
+                inserted_count += 1
+
+    conn.commit()
+    conn.close()
+    print(f"Inserted {inserted_count} funding source records")
+
+
+# ============================================================================
+# DATA INSERTION FUNCTIONS - TABLE 23
+# ============================================================================
+
+def insert_funding_field_data(df, inst_lookup, year, engine):
+    """
+    Insert R&D funding by field data into herd_fund_field table.
+
+    Args:
+        df (pd.DataFrame): DataFrame with 'Institution' column and field columns
+        inst_lookup (pd.DataFrame): Institution lookup table
+        year (int): Year for the data
+        engine: SQLAlchemy engine
+    """
+    conn = engine.connect()
+
+    # Exclude metadata columns
+    col_exclude = ["Rank", "All R&D expenditures"]
+    col_in_df = [c for c in df.columns if c not in col_exclude]
+    df_sub = df.loc[:, col_in_df]
+
+    # Update R&D field categories if new fields found
+    check_fields = update_fund_field(col_in_df, engine)
+    if check_fields == 1:
+        print("New fund fields added to herd_fund_field table")
+    else:
+        print("No new fund fields found")
+
+    inserted_count = 0
+
+    # Insert data for each institution and R&D field
+    for i in range(len(df_sub)):
+        inst_x = df_sub.iloc[i, :]
+
+        for j in range(1, df_sub.shape[1]):
+            field_name = df_sub.columns[j].strip().lower()
+
+            # Get field ID
+            get_field_id_qry = text("SELECT field_id FROM herd_field WHERE field_name = :field_input")
+            field_id = pd.read_sql_query(get_field_id_qry, con=engine, params={"field_input": field_name})
+            field_id = field_id['field_id'].values[0]
+
+            # Get institution ID
+            inst_id_val = inst_lookup[inst_lookup['inst_name'].str.lower() == inst_x['Institution'].lower()]['inst_id'].values
+
+            if len(inst_id_val) == 0:
+                continue
+
+            # Check if record already exists
+            check_qry = text("SELECT 1 FROM herd_fund_field WHERE year = :year AND inst_id = :inst_id_val AND field_id = :field")
+            check_result = conn.execute(check_qry, {"year": year, "inst_id_val": int(inst_id_val[0]), "field": int(field_id)})
+
+            # Insert if not exists
+            if not check_result.fetchone():
+                qry = text("INSERT INTO herd_fund_field (inst_id, field_id, year, value) VALUES (:inst_id_val, :field_id_in, :year, :amount)")
+                amount = None if pd.isna(float(inst_x.iloc[j])) else float(inst_x.iloc[j])
+                record_to_insert = {"inst_id_val": int(inst_id_val[0]), "field_id_in": int(field_id), "year": year, "amount": amount}
+                conn.execute(qry, record_to_insert)
+                inserted_count += 1
+
+    conn.commit()
+    conn.close()
+    print(f"Inserted {inserted_count} funding field records")
+
+
+# ============================================================================
+# DATA INSERTION FUNCTIONS - TABLE 79
+# ============================================================================
+
+def insert_headcount_data(df, inst_lookup, state_lookup, year, engine):
+    """
+    Insert headcount and FTE data into herd_headcount and herd_headcount_state tables.
+
+    Args:
+        df (pd.DataFrame): DataFrame with headcount/FTE data
+        inst_lookup (pd.DataFrame): Institution lookup table
+        state_lookup (pd.DataFrame): State lookup table
+        year (int): Year for the data
+        engine: SQLAlchemy engine
+    """
+    conn = engine.connect()
+    inserted_count = 0
+
+    # Process each row (institution or state)
+    for i in range(len(df)):
+        inst_x = df.iloc[i, :]
+
+        # Determine if row is institution or state
+        inst_check_qry = text("SELECT 1 FROM institution WHERE lower(inst_name) = :inst_name")
+        inst_check_result = conn.execute(inst_check_qry, {"inst_name": inst_x['Item'].lower()})
+
+        if not inst_check_result.fetchone():
+            # This is a state record
+            state_check_qry = text(f"SELECT state_id FROM herd_state WHERE lower(state_name) = '{inst_x['Item'].lower()}'")
+            state_id_found = pd.read_sql_query(state_check_qry, con=engine)
+            state_id_found = state_id_found['state_id'][0]
+            is_state_rec = True
+        else:
+            # This is an institution record
+            inst_check_qry = text(f'SELECT inst_id FROM institution WHERE lower(inst_name) = "{inst_x['Item'].lower()}"')
+            inst_id_found = pd.read_sql_query(inst_check_qry, con=engine)
+            inst_id_found = inst_id_found['inst_id'][0]
+            is_state_rec = False
+
+        # Process each column (headcount category)
+        for j in range(1, df.shape[1]):
+            field_name = df.columns[j]
+            cat_id_check = field_name.split("_")[1]
+
+            # Determine if FTE or headcount
+            fte_field = 1 if field_name.split("_")[0].lower() == "ftes" else 0
+
+            # Insert into appropriate table
+            if is_state_rec:
+                hcnt_qry = text("INSERT INTO herd_headcount_state (headcount_cat_id, state_id, fte, year, value) VALUES (:cat_id_val, :state_id_val, :fte_val, :year_val, :amount)")
+                amount = None if pd.isna(float(inst_x.iloc[j])) else float(inst_x.iloc[j])
+                record_to_insert = {"cat_id_val": int(cat_id_check), "state_id_val": int(state_id_found), "fte_val": int(fte_field), "year_val": year, "amount": amount}
+                conn.execute(hcnt_qry, record_to_insert)
+            else:
+                hcnt_qry = text("INSERT INTO herd_headcount (headcount_cat_id, inst_id, fte, year, value) VALUES (:cat_id_val, :inst_id_val, :fte_val, :year_val, :amount)")
+                amount = None if pd.isna(float(inst_x.iloc[j])) else float(inst_x.iloc[j])
+                record_to_insert = {"cat_id_val": int(cat_id_check), "inst_id_val": int(inst_id_found), "fte_val": int(fte_field), "year_val": year, "amount": amount}
+                conn.execute(hcnt_qry, record_to_insert)
+
+            inserted_count += 1
+
+    conn.commit()
+    conn.close()
+    print(f"Inserted {inserted_count} headcount/FTE records")
+
+
+# ============================================================================
+# TABLE PROCESSING ORCHESTRATION FUNCTIONS
+# ============================================================================
+
+def process_table_21(year_lookup):
+    """
+    Process Table 21: Higher education R&D expenditures, ranked by R&D expenditures.
+
+    Args:
+        year_lookup (int): Year to process (e.g., 2023)
+    """
+    print(f"\n{'='*80}")
+    print(f"Processing Table 21 for year {year_lookup}")
+    print(f"{'='*80}\n")
+
+    # Get year ID and build URL
+    year_id = get_year_id(year_lookup)
+    url = build_table_url(year_id, 21)
+
+    # Download and parse Excel file
+    df = download_excel_from_url(url)
+    header_idx, title, rows_as_lists = parse_excel_headers(df, ["rank", "institution"])
+
+    # Extract header and data
+    top_row = rows_as_lists[header_idx]
+    start_rec = df.iloc[(header_idx + 1):].copy()
+
+    # Clean and prepare data
+    start_rec = clean_dataframe_columns(start_rec)
+    start_rec.columns = top_row
+    start_rec = convert_currency_columns_to_numeric(start_rec)
+
+    # Database operations
+    engine = create_db_engine()
+    inst_names = start_rec['Institution'].unique().tolist()
+    inst_lookup = get_or_create_institutions(inst_names, engine)
+
+    # Insert expenditure and ranking data
+    insert_expenditure_data(start_rec, inst_lookup, engine)
+
+    years_in_df = [c for c in start_rec.columns if isinstance(c, (int, float))]
+    rank_year = max(years_in_df)
+    insert_ranking_data(start_rec, inst_lookup, rank_year, engine)
+
+    engine.dispose()
+    print(f"Table 21 processing complete\n")
+
+
+def process_table_22(year_lookup):
+    """
+    Process Table 22: Higher education R&D expenditures by source of funds.
+
+    Args:
+        year_lookup (int): Year to process (e.g., 2023)
+    """
+    print(f"\n{'='*80}")
+    print(f"Processing Table 22 for year {year_lookup}")
+    print(f"{'='*80}\n")
+
+    # Get year ID and build URL
+    year_id = get_year_id(year_lookup)
+    url = build_table_url(year_id, 22)
+
+    # Download and parse Excel file
+    df = download_excel_from_url(url)
+    header_idx, title, rows_as_lists = parse_excel_headers(df, ["rank", "institution"])
+
+    # Extract two-row header
+    top_row = rows_as_lists[header_idx]
+    second_row = rows_as_lists[header_idx + 1]
+    start_rec = df.iloc[(header_idx + 2):].copy()
+
+    # Clean and prepare data
+    start_rec = clean_dataframe_columns(start_rec)
+
+    # Combine two header rows
+    top_row_label = top_row[:3] + second_row
+    start_rec.columns = top_row_label
+    start_rec = convert_currency_columns_to_numeric(start_rec)
+
+    # Database operations
+    engine = create_db_engine()
+    inst_names = start_rec['Institution'].unique().tolist()
+    inst_lookup = get_or_create_institutions(inst_names, engine)
+
+    # Insert funding source data
+    year = int(get_key_from_value(year_id))
+    insert_funding_source_data(start_rec, inst_lookup, year, engine)
+
+    engine.dispose()
+    print(f"Table 22 processing complete\n")
+
+
+def process_table_23(year_lookup):
+    """
+    Process Table 23: Higher education R&D expenditures by R&D field.
+
+    Args:
+        year_lookup (int): Year to process (e.g., 2021)
+    """
+    print(f"\n{'='*80}")
+    print(f"Processing Table 23 for year {year_lookup}")
+    print(f"{'='*80}\n")
+
+    # Get year ID and build URL
+    year_id = get_year_id(year_lookup)
+    url = build_table_url(year_id, 23)
+
+    # Download and parse Excel file
+    df = download_excel_from_url(url)
+    header_idx, title, rows_as_lists = parse_excel_headers(df, ["rank", "institution"], max_rows=5)
+
+    # Extract header and data
+    top_row = rows_as_lists[header_idx]
+    start_rec = df.iloc[(header_idx + 1):].copy()
+
+    # Clean and prepare data
+    start_rec = clean_dataframe_columns(start_rec)
+    start_rec.columns = top_row
+    start_rec = convert_currency_columns_to_numeric(start_rec)
+
+    # Database operations
+    engine = create_db_engine()
+    inst_names = start_rec['Institution'].unique().tolist()
+    inst_lookup = get_or_create_institutions(inst_names, engine)
+
+    # Insert funding field data
+    year = int(get_key_from_value(year_id))
+    insert_funding_field_data(start_rec, inst_lookup, year, engine)
+
+    engine.dispose()
+    print(f"Table 23 processing complete\n")
+
+
+def process_table_79(year_lookup):
+    """
+    Process Table 79: Headcount and FTEs of R&D personnel.
+
+    Args:
+        year_lookup (str): Year to process (e.g., '2023')
+    """
+    print(f"\n{'='*80}")
+    print(f"Processing Table 79 for year {year_lookup}")
+    print(f"{'='*80}\n")
+
+    # Year ID lookup (Table 79 started in 2023)
+    year_id_lookup = {'2023': 25314, '2022': 24308, '2021': 23304}
+    year_id = year_id_lookup[year_lookup]
+
+    # Build URL and download
+    url = build_table_url(year_id, 79)
+    df = download_excel_from_url(url)
+
+    # Find header row
+    header_idx, title, rows_as_lists = parse_excel_headers(
+        df, ["institutional control", "and institution"], max_rows=5
+    )
+
+    # Extract two-row header
+    top_row = rows_as_lists[header_idx]
+    second_row = rows_as_lists[header_idx + 1]
+    start_rec = df.iloc[(header_idx + 2):].copy()
+
+    # Clean columns
+    start_rec = clean_dataframe_columns(start_rec)
+
+    # Database connection
+    engine = create_db_engine()
+    conn = engine.connect()
+
+    # Update headcount categories
+    col_x = top_row[1:]
+    check_cat = update_headcount_cat(col_x, engine)
+    if check_cat == 1:
+        print("New headcount category added to herd_headcount_cat table")
+    else:
+        print("No new headcount category found")
+
+    # Link categories to field names
+    headcount_counter = 0
+    fte_counter = 0
+    for idx in range(len(second_row)):
+        if second_row[idx] == "Headcount":
+            cat_check_qry = text(f"SELECT headcount_cat_id FROM herd_headcount_cat WHERE headcount_cat = '{col_x[headcount_counter]}'")
+            cat_id_found = pd.read_sql_query(cat_check_qry, con=engine)
+            cat_id_found = cat_id_found['headcount_cat_id'][0]
+            second_row[idx] = f"{second_row[idx]}_{cat_id_found}"
+            headcount_counter += 1
+        elif second_row[idx] == "FTEs":
+            cat_check_qry = text(f"SELECT headcount_cat_id FROM herd_headcount_cat WHERE headcount_cat = '{col_x[fte_counter]}'")
+            cat_id_found = pd.read_sql_query(cat_check_qry, con=engine)
+            cat_id_found = cat_id_found['headcount_cat_id'][0]
+            second_row[idx] = f"{second_row[idx]}_{cat_id_found}"
+            fte_counter += 1
+
+    # Assign headers
+    start_rec.columns = ["Item"] + second_row
+
+    # Convert numeric columns
+    for j in range(1, start_rec.shape[1]):
+        start_rec.iloc[:, j] = (
+            start_rec.iloc[:, j]
+            .astype(str)
+            .str.replace(r'[^0-9]', '', regex=True)
+            .replace('', np.nan)
+            .apply(pd.to_numeric, errors='coerce')
+        )
+
+    # Get institutions and states
+    inst_names = start_rec['Item'].unique().tolist()
+    inst_lookup = get_or_create_institutions(inst_names, engine)
+
+    # Get state lookup
+    check_state_qry = text("SELECT state_id, state_name FROM herd_state")
+    state_lookup = pd.read_sql_query(check_state_qry, con=engine)
+
+    # Insert headcount data
+    year = int(get_key_from_value(year_id))
+    insert_headcount_data(start_rec, inst_lookup, state_lookup, year, engine)
+
+    conn.close()
+    engine.dispose()
+    print(f"Table 79 processing complete\n")
+
+
+# ============================================================================
+# MAIN EXECUTION
+# ============================================================================
+
+def main():
+    """
+    Main execution function to process all HERD tables.
+    Modify the year parameters as needed for your data update cycle.
+    """
+    print("="*80)
+    print("HERD Data Processing Pipeline")
+    print("="*80)
+
+    try:
+        # Process Table 21: R&D Expenditures
+        process_table_21(year_lookup=2023)
+
+        # Process Table 22: Funding by Source
+        process_table_22(year_lookup=2023)
+
+        # Process Table 23: Funding by Field
+        process_table_23(year_lookup=2021)
+
+        # Process Table 79: Headcount and FTEs
+        process_table_79(year_lookup='2023')
+
+        print("\n" + "="*80)
+        print("All tables processed successfully!")
+        print("="*80)
+
+    except Exception as e:
+        print(f"\nError during processing: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
