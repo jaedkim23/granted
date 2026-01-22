@@ -730,26 +730,52 @@ def process_table_79(year_lookup):
     print(f"Processing Table 79 for year {year_lookup}")
     print(f"{'='*80}\n")
 
-    # Year ID lookup (Table 79 started in 2023)
-    year_id_lookup = {'2023': 25314, '2022': 24308, '2021': 23304}
-    year_id = year_id_lookup[year_lookup]
+    # Get year ID and build URL
+    year_id = get_year_id(year_lookup)
+    url = build_table_url(year_id, 79)
+
 
     # Build URL and download
-    url = build_table_url(year_id, 79)
     df = download_excel_from_url(url)
 
-    # Find header row
-    header_idx, title, rows_as_lists = parse_excel_headers(
-        df, ["institutional control", "and institution"], max_rows=5
-    )
+    # Find the likely header row
+    comp_row = find_best_header(df.iloc[:5])
+    head_rows = df.iloc[:(1+comp_row)]
 
-    # Extract two-row header
-    top_row = rows_as_lists[header_idx]
-    second_row = rows_as_lists[header_idx + 1]
-    start_rec = df.iloc[(header_idx + 2):].copy()
+    # convert non-records into a list
+    rows_as_lists = [row.dropna().tolist() for _, row in head_rows.iterrows()]
 
-    # Clean columns
-    start_rec = clean_dataframe_columns(start_rec)
+    # The first cell of file is the title of the table
+    tbl_title = rows_as_lists[0]
+
+    # Find "Institution" - header of Table 79
+    for i in range(len(rows_as_lists)):
+        row = rows_as_lists[i]
+        if any("institutional control" in str(cell).lower() for cell in row) and any("and institution" in str(cell).lower() for cell in row):
+            print(row)
+            break
+     
+    # Index i is the header row
+    top_row = rows_as_lists[i]
+    second_row = rows_as_lists[i+1]
+    if year_lookup==2022:
+        second_row = ['Headcount' if x == 'Personnel' else x for x in second_row]
+
+    # Rest of data frame is the records
+    start_rec = df.iloc[(i+2):].copy()
+
+    # Table has extra columns between legitimate columns
+    # Find columns with more than half NaN values
+    col_na_cnt = start_rec.isna().sum(axis=0)
+    col_names = col_na_cnt[col_na_cnt>=len(start_rec)/2].index.tolist()
+
+    col_names_imputed_cnt = (start_rec=="i").sum(axis=0)
+    col_names_imputed = col_names_imputed_cnt[col_names_imputed_cnt>0].index.tolist()
+
+    col_names_merge = [col for col in col_names if col in col_names_imputed]
+
+    # Drop the unnecessary columns
+    start_rec.drop(columns=col_names, inplace=True)
 
     # Database connection
     engine = create_db_engine()
@@ -808,6 +834,7 @@ def process_table_79(year_lookup):
     conn.close()
     engine.dispose()
     print(f"Table 79 processing complete\n")
+
 
 
 # ============================================================================
