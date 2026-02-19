@@ -37,7 +37,7 @@ DB_CONFIG = {
     'port': os.getenv('herd_port_test', 3306)
 }
 
-
+#for local connection
 # # Database connection credentials
 # DB_CONFIG = {
 #     'host': os.getenv('herd_host_local'),
