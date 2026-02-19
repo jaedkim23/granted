@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+
 # Database connection credentials
 DB_CONFIG = {
     'host': os.getenv('herd_host_test'),
@@ -35,6 +36,17 @@ DB_CONFIG = {
     'password': os.getenv('herd_password_test'),
     'port': os.getenv('herd_port_test', 3306)
 }
+
+
+# # Database connection credentials
+# DB_CONFIG = {
+#     'host': os.getenv('herd_host_local'),
+#     'database': os.getenv('herd_database_local'),
+#     'user': os.getenv('herd_username_local'),
+#     'password': os.getenv('herd_password_local'),
+#     'port': os.getenv('herd_port_local', 3306)
+# }
+
 
 # NSF data URL templates
 TABX_DIR1 = "https://ncses.nsf.gov/pubs/nsf"
@@ -286,18 +298,54 @@ def insert_expenditure_data(df, inst_lookup, engine):
             if len(inst_id_val) == 0:
                 print(f"Warning: Institution '{inst_x}' not found in lookup table")
                 continue
+            
+            
+            # compute new value once
+            amount = None if pd.isna(float(df_year.iloc[i, 1])) else float(df_year.iloc[i, 1])
 
-            # Check if record already exists
-            check_qry = text("SELECT 1 FROM herd_exp WHERE year = :year AND inst_id = :inst_id_val")
-            check_result = conn.execute(check_qry, {"year": yearx, "inst_id_val": int(inst_id_val[0])})
+            # get existing value (if any)
+            check_qry = text("""
+                SELECT value
+                FROM herd_exp
+                WHERE year = :year AND inst_id = :inst_id_val
+            """)
+            row = conn.execute(check_qry, {"year": yearx, "inst_id_val": int(inst_id_val[0])}).fetchone()
 
-            # Insert if not exists
-            if not check_result.fetchone():
+            if row is None:
+                # INSERT if missing
                 qry = text("INSERT INTO herd_exp (inst_id, year, value) VALUES (:inst_id_val, :year, :amount)")
-                amount = None if pd.isna(float(df_year.iloc[i, 1])) else float(df_year.iloc[i, 1])
-                record_to_insert = {"inst_id_val": int(inst_id_val[0]), "year": yearx, "amount": amount}
-                conn.execute(qry, record_to_insert)
+                conn.execute(qry, {"inst_id_val": int(inst_id_val[0]), "year": yearx, "amount": amount})
                 inserted_count += 1
+            else:
+                existing_value = row[0]
+                # UPDATE if different (handles revisions)
+                if existing_value != amount:
+                    print(
+                    f"UPDATE DETECTED → inst={inst_x}, "
+                    f"year={yearx}, "
+                    f"old_value={existing_value}, "
+                    f"new_value={amount}")
+
+
+                    upd = text("""
+                        UPDATE herd_exp
+                        SET value = :amount
+                        WHERE year = :year AND inst_id = :inst_id_val
+                    """)
+                    conn.execute(upd, {"amount": amount, "year": yearx, "inst_id_val": int(inst_id_val[0])})
+
+
+            # # Check if record already exists
+            # check_qry = text("SELECT 1 FROM herd_exp WHERE year = :year AND inst_id = :inst_id_val")
+            # check_result = conn.execute(check_qry, {"year": yearx, "inst_id_val": int(inst_id_val[0])})
+
+            # # Insert if not exists
+            # if not check_result.fetchone():
+            #     qry = text("INSERT INTO herd_exp (inst_id, year, value) VALUES (:inst_id_val, :year, :amount)")
+            #     amount = None if pd.isna(float(df_year.iloc[i, 1])) else float(df_year.iloc[i, 1])
+            #     record_to_insert = {"inst_id_val": int(inst_id_val[0]), "year": yearx, "amount": amount}
+            #     conn.execute(qry, record_to_insert)
+            #     inserted_count += 1
 
     conn.commit()
     conn.close()
