@@ -11,13 +11,24 @@ from sqlalchemy import create_engine, text, bindparam
 import sys
 
 def get_year_id(year_in):
-    year_id_lookup = {'2023': 25314, '2022': 24308, '2021': 23304}
+    year_id_lookup = {'2024':26304, '2023': 25314, '2022': 24308, '2021': 23304, '2020':22311, '2019':21314}
     try:
         result = year_id_lookup[str(year_in)]
     except KeyError:
         result = "Key not found"
     return result
 
+def get_key_from_value(val):
+    """
+    Returns the first key in dictionary 'd' that has the value 'val'.
+    Raises ValueError if the value is not found.
+    """
+    d = {'2024':26304, '2023': 25314, '2022': 24308, '2021': 23304, '2020':22311, '2019':21314}
+    for key, value in d.items():
+        if value == val:
+            return key
+    return "Value not found"
+    # raise ValueError(f"Value '{val}' not found in the dictionary.")
 
 def find_best_header(df_preview):
     """
@@ -32,16 +43,6 @@ def find_best_header(df_preview):
     
     return best_header_index
 
-def get_key_from_value(val):
-    """
-    Returns the first key in dictionary 'd' that has the value 'val'.
-    Raises ValueError if the value is not found.
-    """
-    d = {'2023': 25314, '2022': 24308, '2021': 23304}
-    for key, value in d.items():
-        if value == val:
-            return key
-    raise ValueError(f"Value '{val}' not found in the dictionary.")
 
 def look_up_institution(inst_list, engine_in):
     """
