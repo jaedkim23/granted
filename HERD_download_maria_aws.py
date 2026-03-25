@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+
 # Database connection credentials
 DB_CONFIG = {
     'host': os.getenv('herd_host_test'),
@@ -35,6 +36,17 @@ DB_CONFIG = {
     'password': os.getenv('herd_password_test'),
     'port': os.getenv('herd_port_test', 3306)
 }
+
+#for local connection
+# # Database connection credentials
+# DB_CONFIG = {
+#     'host': os.getenv('herd_host_local'),
+#     'database': os.getenv('herd_database_local'),
+#     'user': os.getenv('herd_username_local'),
+#     'password': os.getenv('herd_password_local'),
+#     'port': os.getenv('herd_port_local', 3306)
+# }
+
 
 # NSF data URL templates
 TABX_DIR1 = "https://ncses.nsf.gov/pubs/nsf"
@@ -286,8 +298,9 @@ def insert_expenditure_data(df, inst_lookup, engine):
             if len(inst_id_val) == 0:
                 print(f"Warning: Institution '{inst_x}' not found in lookup table")
                 continue
-
-             # compute new value once
+            
+            
+            # compute new value once
             amount = None if pd.isna(float(df_year.iloc[i, 1])) else float(df_year.iloc[i, 1])
 
             # get existing value (if any)
