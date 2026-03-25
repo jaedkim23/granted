@@ -4,7 +4,7 @@ Downloads and processes Higher Education R&D expenditure data from NSF NCSES
 Handles Tables 21, 22, 23, and 79 from the HERD survey data
 
 Author: USD ResDataNexus Team
-Last Updated: 2026-01-21
+Last Updated: 2026-03-18
 By: Jae Kim
 """
 
@@ -882,7 +882,6 @@ def process_table_79(year_lookup):
     conn.close()
     engine.dispose()
     print(f"Table 79 processing complete\n")
-
 
 
 # ============================================================================
