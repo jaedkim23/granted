@@ -8,7 +8,7 @@ GRANTED
 
 ## 📖 Overview
 
-This repo is for the creation of the HERD and research databases. Details to be added.
+This repo is for the creation of the HERD database. Details to be added.
 
 ---
 
