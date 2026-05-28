@@ -10,6 +10,10 @@ from io import BytesIO
 from sqlalchemy import create_engine, text, bindparam
 import sys
 
+# NSF data URL templates
+TABX_DIR1 = "https://ncses.nsf.gov/pubs/nsf"
+TABX_DIR2 = "/assets/data-tables/tables/nsf"
+
 def get_year_id(year_in):
     year_id_lookup = {'2024':26304, '2023': 25314, '2022': 24308, '2021': 23304, '2020':22311, '2019':21314}
     try:
@@ -281,3 +285,84 @@ def update_headcount_cat(cat_in, con_spec):
         status = 1
 
     return status
+
+def build_table_url(year_id, table_number):
+    """
+    Construct NSF data table URL.
+
+    Args:
+        year_id (int): NSF year identifier (e.g., 25314 for 2023)
+        table_number (int): Table number (21, 22, 23, 79)
+
+    Note: Each year has a different 5-digit identifier
+
+    Returns:
+        Complete URL to Excel file
+    """
+    table_str = f"{table_number:03d}"  # Format as 3-digit number with leading zeros
+    return f"{TABX_DIR1}{year_id}{TABX_DIR2}{year_id}-tab{table_str}.xlsx"
+
+def get_actual_table_number(year, logical_table_number, engine):
+    """
+    Look up the actual NSF table number for a logical HERD table number.
+
+    Args:
+        year: Survey year, such as 2024
+        logical_table_number: The table number expected by the processing logic,
+                              such as 21, 22, 23, or 79
+        engine: SQLAlchemy database engine
+
+    Returns:
+        int: Actual NSF table number for that year
+
+    Raises:
+        ValueError: If no lookup row exists for that year/table combination
+    """
+    query = text("""
+        SELECT actual_table_number, confidence
+        FROM herd_table_lookup
+        WHERE year = :year
+          AND logical_table_number = :logical_table_number
+    """)
+
+    result = pd.read_sql_query(
+        query,
+        con=engine,
+        params={
+            "year": int(year),
+            "logical_table_number": int(logical_table_number)
+        }
+    )
+
+    if result.empty:
+        raise ValueError(
+            f"No actual table number found for logical table "
+            f"{logical_table_number} in year {year}. "
+            f"Run HERD_table_number_scraper.py first."
+        )
+
+    confidence = float(result.iloc[0]["confidence"])
+
+    if confidence < 0.75:
+        print(
+            f"Warning: low-confidence table match for year {year}, "
+            f"logical table {logical_table_number}: confidence={confidence:.2f}"
+        )
+
+    return int(result.iloc[0]["actual_table_number"])
+
+def get_table_url_info_for_logical_table(year_lookup, logical_table_number, engine):
+    year_id = get_year_id(year_lookup)
+    actual_table_number = get_actual_table_number(
+        year_lookup,
+        logical_table_number,
+        engine
+    )
+    url = build_table_url(year_id, actual_table_number)
+
+    print(
+        f"Year {year_lookup}, logical table {logical_table_number} "
+        f"maps to actual NSF table {actual_table_number}"
+    )
+
+    return year_id, url

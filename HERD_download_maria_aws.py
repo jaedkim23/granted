@@ -4,7 +4,7 @@ Downloads and processes Higher Education R&D expenditure data from NSF NCSES
 Handles Tables 21, 22, 23, and 79 from the HERD survey data
 
 Author: USD ResDataNexus Team
-Last Updated: 2026-03-18
+Last Updated: 2026-01-21
 By: Jae Kim
 """
 
@@ -27,7 +27,6 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-
 # Database connection credentials
 DB_CONFIG = {
     'host': os.getenv('herd_host_test'),
@@ -36,21 +35,6 @@ DB_CONFIG = {
     'password': os.getenv('herd_password_test'),
     'port': os.getenv('herd_port_test', 3306)
 }
-
-#for local connection
-# # Database connection credentials
-# DB_CONFIG = {
-#     'host': os.getenv('herd_host_local'),
-#     'database': os.getenv('herd_database_local'),
-#     'user': os.getenv('herd_username_local'),
-#     'password': os.getenv('herd_password_local'),
-#     'port': os.getenv('herd_port_local', 3306)
-# }
-
-
-# NSF data URL templates
-TABX_DIR1 = "https://ncses.nsf.gov/pubs/nsf"
-TABX_DIR2 = "/assets/data-tables/tables/nsf"
 
 
 # ============================================================================
@@ -83,22 +67,6 @@ def create_db_engine():
 # ============================================================================
 # DATA DOWNLOAD AND PARSING FUNCTIONS
 # ============================================================================
-def build_table_url(year_id, table_number):
-    """
-    Construct NSF data table URL.
-
-    Args:
-        year_id (int): NSF year identifier (e.g., 25314 for 2023)
-        table_number (int): Table number (21, 22, 23, 79)
-
-    Note: Each year has a different 5-digit identifier
-
-    Returns:
-        Complete URL to Excel file
-    """
-    table_str = f"{table_number:03d}"  # Format as 3-digit number with leading zeros
-    return f"{TABX_DIR1}{year_id}{TABX_DIR2}{year_id}-tab{table_str}.xlsx"
-
 def download_excel_from_url(url):
     """
     Download Excel file from URL and load into pandas DataFrame.
@@ -298,54 +266,18 @@ def insert_expenditure_data(df, inst_lookup, engine):
             if len(inst_id_val) == 0:
                 print(f"Warning: Institution '{inst_x}' not found in lookup table")
                 continue
-            
-            
-            # compute new value once
-            amount = None if pd.isna(float(df_year.iloc[i, 1])) else float(df_year.iloc[i, 1])
 
-            # get existing value (if any)
-            check_qry = text("""
-                SELECT value
-                FROM herd_exp
-                WHERE year = :year AND inst_id = :inst_id_val
-            """)
-            row = conn.execute(check_qry, {"year": yearx, "inst_id_val": int(inst_id_val[0])}).fetchone()
+            # Check if record already exists
+            check_qry = text("SELECT 1 FROM herd_exp WHERE year = :year AND inst_id = :inst_id_val")
+            check_result = conn.execute(check_qry, {"year": yearx, "inst_id_val": int(inst_id_val[0])})
 
-            if row is None:
-                # INSERT if missing
+            # Insert if not exists
+            if not check_result.fetchone():
                 qry = text("INSERT INTO herd_exp (inst_id, year, value) VALUES (:inst_id_val, :year, :amount)")
-                conn.execute(qry, {"inst_id_val": int(inst_id_val[0]), "year": yearx, "amount": amount})
+                amount = None if pd.isna(float(df_year.iloc[i, 1])) else float(df_year.iloc[i, 1])
+                record_to_insert = {"inst_id_val": int(inst_id_val[0]), "year": yearx, "amount": amount}
+                conn.execute(qry, record_to_insert)
                 inserted_count += 1
-            else:
-                existing_value = row[0]
-                # UPDATE if different (handles revisions)
-                if existing_value != amount:
-                    print(
-                    f"UPDATE DETECTED → inst={inst_x}, "
-                    f"year={yearx}, "
-                    f"old_value={existing_value}, "
-                    f"new_value={amount}")
-
-
-                    upd = text("""
-                        UPDATE herd_exp
-                        SET value = :amount
-                        WHERE year = :year AND inst_id = :inst_id_val
-                    """)
-                    conn.execute(upd, {"amount": amount, "year": yearx, "inst_id_val": int(inst_id_val[0])})
-
-
-            # # Check if record already exists
-            # check_qry = text("SELECT 1 FROM herd_exp WHERE year = :year AND inst_id = :inst_id_val")
-            # check_result = conn.execute(check_qry, {"year": yearx, "inst_id_val": int(inst_id_val[0])})
-
-            # # Insert if not exists
-            # if not check_result.fetchone():
-            #     qry = text("INSERT INTO herd_exp (inst_id, year, value) VALUES (:inst_id_val, :year, :amount)")
-            #     amount = None if pd.isna(float(df_year.iloc[i, 1])) else float(df_year.iloc[i, 1])
-            #     record_to_insert = {"inst_id_val": int(inst_id_val[0]), "year": yearx, "amount": amount}
-            #     conn.execute(qry, record_to_insert)
-            #     inserted_count += 1
 
     conn.commit()
     conn.close()
@@ -393,49 +325,6 @@ def insert_ranking_data(df, inst_lookup, year, engine):
     conn.commit()
     conn.close()
     print(f"Inserted {inserted_count} ranking records")
-
-def process_table_21(year_lookup):
-    """
-    Process Table 21: Higher education R&D expenditures, ranked by R&D expenditures.
-
-    Args:
-        year_lookup: year to process (e.g., 2023)
-    """
-    print(f"\n{'='*80}")
-    print(f"Processing Table 21 for year {year_lookup}")
-    print(f"{'='*80}\n")
-
-    # Get year ID and build URL
-    year_id = get_year_id(year_lookup)
-    url = build_table_url(year_id, 21)
-
-    # Download and parse Excel file
-    df = download_excel_from_url(url)
-    header_idx, title, rows_as_lists = parse_excel_headers(df, ["rank", "institution"])
-
-    # Extract header and data
-    top_row = rows_as_lists[header_idx]
-    start_rec = df.iloc[(header_idx + 1):].copy()
-
-    # Clean and prepare data
-    start_rec = clean_dataframe_columns(start_rec)
-    start_rec.columns = top_row
-    start_rec = convert_currency_columns_to_numeric(start_rec)
-
-    # Database operations
-    engine = create_db_engine()
-    inst_names = start_rec['Institution'].unique().tolist()
-    inst_lookup = get_or_create_institutions(inst_names, engine)
-
-    # Insert expenditure and ranking data
-    insert_expenditure_data(start_rec, inst_lookup, engine)
-
-    years_in_df = [c for c in start_rec.columns if isinstance(c, (int, float))]
-    rank_year = max(years_in_df)
-    insert_ranking_data(start_rec, inst_lookup, rank_year, engine)
-
-    engine.dispose()
-    print(f"Table 21 processing complete\n")
 
 # ============================================================================
 # DATA INSERTION FUNCTIONS - TABLE 22
@@ -535,6 +424,8 @@ def insert_funding_field_data(df, inst_lookup, year, engine):
     # Insert data for each institution and R&D field
     for i in range(len(df_sub)):
         inst_x = df_sub.iloc[i, :]
+
+        print(f"inserting data into row {i} of {len(df_sub)}")
 
         for j in range(1, df_sub.shape[1]):
             field_name = df_sub.columns[j].strip().lower()
@@ -649,8 +540,11 @@ def process_table_21(year_lookup):
     print(f"{'='*80}\n")
 
     # Get year ID and build URL
-    year_id = get_year_id(year_lookup)
-    url = build_table_url(year_id, 21)
+    # year_id = get_year_id(year_lookup)
+    # url = build_table_url(year_id, 21)
+
+    engine = create_db_engine()
+    year_id, url = get_table_url_info_for_logical_table(year_lookup, 21, engine)
 
     # Download and parse Excel file
     df = download_excel_from_url(url)
@@ -666,7 +560,6 @@ def process_table_21(year_lookup):
     start_rec = convert_currency_columns_to_numeric(start_rec)
 
     # Database operations
-    engine = create_db_engine()
     inst_names = start_rec['Institution'].unique().tolist()
     inst_lookup = get_or_create_institutions(inst_names, engine)
 
@@ -693,8 +586,10 @@ def process_table_22(year_lookup):
     print(f"{'='*80}\n")
 
     # Get year ID and build URL
-    year_id = get_year_id(year_lookup)
-    url = build_table_url(year_id, 22)
+    # year_id = get_year_id(year_lookup)
+    # url = build_table_url(year_id, 22)
+    engine = create_db_engine()
+    year_id, url = get_table_url_info_for_logical_table(year_lookup, 22, engine)
 
     # Download and parse Excel file
     df = download_excel_from_url(url)
@@ -714,7 +609,6 @@ def process_table_22(year_lookup):
     start_rec = convert_currency_columns_to_numeric(start_rec)
 
     # Database operations
-    engine = create_db_engine()
     inst_names = start_rec['Institution'].unique().tolist()
     inst_lookup = get_or_create_institutions(inst_names, engine)
 
@@ -738,8 +632,10 @@ def process_table_23(year_lookup):
     print(f"{'='*80}\n")
 
     # Get year ID and build URL
-    year_id = get_year_id(year_lookup)
-    url = build_table_url(year_id, 23)
+    # year_id = get_year_id(year_lookup)
+    # url = build_table_url(year_id, 23)
+    engine = create_db_engine()
+    year_id, url = get_table_url_info_for_logical_table(year_lookup, 23, engine)
 
     # Download and parse Excel file
     df = download_excel_from_url(url)
@@ -755,7 +651,6 @@ def process_table_23(year_lookup):
     start_rec = convert_currency_columns_to_numeric(start_rec)
 
     # Database operations
-    engine = create_db_engine()
     inst_names = start_rec['Institution'].unique().tolist()
     inst_lookup = get_or_create_institutions(inst_names, engine)
 
@@ -779,8 +674,10 @@ def process_table_79(year_lookup):
     print(f"{'='*80}\n")
 
     # Get year ID and build URL
-    year_id = get_year_id(year_lookup)
-    url = build_table_url(year_id, 79)
+    # year_id = get_year_id(year_lookup)
+    # url = build_table_url(year_id, 79)
+    engine = create_db_engine()
+    year_id, url = get_table_url_info_for_logical_table(year_lookup, 79, engine)
 
 
     # Build URL and download
@@ -802,7 +699,7 @@ def process_table_79(year_lookup):
         if any("institutional control" in str(cell).lower() for cell in row) and any("and institution" in str(cell).lower() for cell in row):
             print(row)
             break
-     
+        
     # Index i is the header row
     top_row = rows_as_lists[i]
     second_row = rows_as_lists[i+1]
@@ -826,7 +723,6 @@ def process_table_79(year_lookup):
     start_rec.drop(columns=col_names, inplace=True)
 
     # Database connection
-    engine = create_db_engine()
     conn = engine.connect()
 
     # Update headcount categories
@@ -884,6 +780,7 @@ def process_table_79(year_lookup):
     print(f"Table 79 processing complete\n")
 
 
+
 # ============================================================================
 # MAIN EXECUTION
 # ============================================================================
@@ -902,13 +799,13 @@ def main():
         process_table_21(year_lookup=2023)
 
         # Process Table 22: Funding by Source
-        process_table_22(year_lookup=2023)
+        # process_table_22(year_lookup=2022)
 
         # Process Table 23: Funding by Field
-        process_table_23(year_lookup=2023)
+        # process_table_23(year_lookup=2023)
 
         # Process Table 79: Headcount and FTEs
-        process_table_79(year_lookup=2023)
+        # process_table_79(year_lookup=2022)
 
         print("\n" + "="*80)
         print("All tables processed successfully!")
