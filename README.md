@@ -25,6 +25,7 @@ The first method involves integrating the application directly into your organiz
 In this case, it's most likely that your organization's IT department would have to provide support in integration your application directly into the existing websites. Here is a step-by-step guide to creating your own HERD reporting application.
 
 * **Step 1: Create the Database Schema**
+
 Use the file "create_herd_tbl_maria.sql" to create the database schema. The ER diagram of the database schema is shown below.
 
 ![ER_Diagram](<Assets/ER_Diagram.png>)
@@ -41,6 +42,7 @@ Remember to create an environment file that stores all relevant credentials like
 We now add the corresponding records into the relevant tables created in step 1.
 
 * **Step 2: Extract, Transform and Load Data**
+
 Use the files "HERD_download_maria_aws.py" and "HERD_functions.py" to map the data from the NSF HERD website into the database created in step 1. Both files are Python scripts and automatically maps the correct data fields into the correct fields/tables. You only have to run the "HERD_download_maria_aws.py" file to add the records into the tables (this file uses the functions in "HERD_functions.py"). 
 
 Note: The Python scripts require access to the local environment (.env) file with credentials to the database created in step 1. 
@@ -48,11 +50,13 @@ Note: The Python scripts require access to the local environment (.env) file wit
 Once the "HERD_download_maria_aws.py" script terminates, the relevant data from the 4 tables from NSF HERD are now available for your use. You can create your own application using the database or use the Tableau example in the next step.
 
 * **Step 3: Data Visualization (Tableau)**
+
 You can use the following PDF file for a step-by-step instructions on how to connect your DB to Tableau to create your own application.
 
   [MariaDB Tableau Integration](<Assets/MariaDB Tableau Integration.pdf>)
 
 * **Step 4: Integrate into Existing Webpages**
+
 You can insert your Tableau application as an iframe element directly into your existing webpages. It is strongly recommended to consult your organization's IT or web team for this step.
 
 
@@ -66,4 +70,5 @@ The second method is similar to Method 1 but it is for organizations without exi
 Refer to Steps 1, 2, and 3 prescribed in Method 1. 
 
 * **Step 4: Create Web Resources**
+
 TBD
