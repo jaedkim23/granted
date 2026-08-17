@@ -37,17 +37,6 @@ DB_CONFIG = {
     'port': os.getenv('herd_port_test', 3306)
 }
 
-#for local connection
-# # Database connection credentials
-# DB_CONFIG = {
-#     'host': os.getenv('herd_host_local'),
-#     'database': os.getenv('herd_database_local'),
-#     'user': os.getenv('herd_username_local'),
-#     'password': os.getenv('herd_password_local'),
-#     'port': os.getenv('herd_port_local', 3306)
-# }
-
-
 # NSF data URL templates
 TABX_DIR1 = "https://ncses.nsf.gov/pubs/nsf"
 TABX_DIR2 = "/assets/data-tables/tables/nsf"
