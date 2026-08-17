@@ -50,8 +50,7 @@ Once the "HERD_download_maria_aws.py" script terminates, the relevant data from 
 * **Step 3: Data Visualization (Tableau)**
 You can use the following PDF file for a step-by-step instructions on how to connect your DB to Tableau to create your own application.
 
-        [MariaDB Tableau Integration](<Assets/MariaDB Tableau Integration.pdf>)
-
+  [MariaDB Tableau Integration](<Assets/MariaDB Tableau Integration.pdf>)
 
 * **Step 4: Integrate into Existing Webpages**
 You can insert your Tableau application as an iframe element directly into your existing webpages. It is strongly recommended to consult your organization's IT or web team for this step.
