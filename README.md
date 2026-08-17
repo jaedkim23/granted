@@ -4,13 +4,18 @@
 
 **Project Funded by:** NSF
 
+_This material is based upon work supported by the National Science Foundation under Grant No. 2528426. Any opinions, findings, and conclusions or recommendations expressed in this material are those of the author(s) and do not necessarily reflect the views of the National Science Foundation._
+
+<!-- Percentage of container width -->
+<img src="Assets/NSF_logo.png" width="15%">
+
 ---
 
 ## 📖 Overview
 
 This is a repository for the GRANTED project specifically for working with the NSF HERD data. The figure below shows the main steps of the project. The main scripts create the backend database structure and maps the relevant fields to the correct tables in the database. Any application can connect to the database. There is an example Tableau application provided in the repo. 
 
-![Process Overview](<Assets/Process Overview.png>)
+<img src="Assets/Process Overview.png" width="95%">
 
 There are two main ways to replicate the project for your own organzation. 
 
@@ -20,7 +25,7 @@ There are two main ways to replicate the project for your own organzation.
 
 The first method involves integrating the application directly into your organization's existing web infrastructure. For example, the University of San Diego (USD) created a Tableau application that directly displays on its webpage (see below).
 
-![option1](<Assets/option1.png>)
+<img src="Assets/option1.png" width="50%">
 
 In this case, it's most likely that your organization's IT department would have to provide support in integration your application directly into the existing websites. Here is a step-by-step guide to creating your own HERD reporting application.
 
@@ -28,7 +33,7 @@ In this case, it's most likely that your organization's IT department would have
 
 Use the file "create_herd_tbl_maria.sql" to create the database schema. The ER diagram of the database schema is shown below.
 
-![ER_Diagram](<Assets/ER_Diagram.png>)
+<img src="Assets/ER_Diagram.png" width="85%">
 
 This database will organize information from the following tables from the NSF HERD website (as of 2024 release).
 
