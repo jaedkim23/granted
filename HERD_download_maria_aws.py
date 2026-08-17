@@ -256,7 +256,7 @@ def get_or_create_institutions(inst_names, engine):
     return inst_lookup
 
 # ============================================================================
-# DATA INSERTION FUNCTIONS - TABLE 21
+# DATA INSERTION FUNCTIONS - TABLE 21 (TABLE 13 in 2024)
 # ============================================================================
 
 def insert_expenditure_data(df, inst_lookup, engine):
@@ -438,7 +438,7 @@ def process_table_21(year_lookup):
     print(f"Table 21 processing complete\n")
 
 # ============================================================================
-# DATA INSERTION FUNCTIONS - TABLE 22
+# DATA INSERTION FUNCTIONS - TABLE 22 (TABLE 14 in 2024)
 # ============================================================================
 
 def insert_funding_source_data(df, inst_lookup, year, engine):
@@ -503,7 +503,7 @@ def insert_funding_source_data(df, inst_lookup, year, engine):
 
 
 # ============================================================================
-# DATA INSERTION FUNCTIONS - TABLE 23
+# DATA INSERTION FUNCTIONS - TABLE 23 (TABLE 15 in 2024)
 # ============================================================================
 
 def insert_funding_field_data(df, inst_lookup, year, engine):
@@ -568,7 +568,7 @@ def insert_funding_field_data(df, inst_lookup, year, engine):
 
 
 # ============================================================================
-# DATA INSERTION FUNCTIONS - TABLE 79
+# DATA INSERTION FUNCTIONS - TABLE 79 (TABLE 27 in 2024)
 # ============================================================================
 
 def insert_headcount_data(df, inst_lookup, state_lookup, year, engine):
