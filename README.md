@@ -76,4 +76,4 @@ Refer to Steps 1, 2, and 3 prescribed in Method 1.
 
 * **Step 4: Create Web Resources**
 
-TBD
+Please refer to the instructions provided in the [README](<turnkey/README.md>) in the **turnkey** directory. The instructions provide guidance on how to use the webpage templates for your own use. 
