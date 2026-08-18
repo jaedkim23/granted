@@ -1,0 +1,316 @@
+/* ============================================================
+   NSF Project Dashboard — setup.css
+   University of San Diego · School of Engineering
+   Setup / configuration wizard pages
+   ============================================================ */
+
+/* ── Reset & base ───────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+    --color-blue:       #003087;
+    --color-blue-dark:  #001f5b;
+    --color-gold:       #C8A84B;
+    --color-gold-light: #e8c96b;
+    --color-white:      #ffffff;
+    --color-off-white:  #f5f6f8;
+    --color-text:       #1a1a2e;
+    --color-text-muted: #5a6070;
+    --color-border:     #d8dce8;
+    --color-danger:     #c0392b;
+    --color-danger-dark:#7a261c;
+
+    --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --radius: 8px;
+    --transition: 180ms ease;
+    --max-width: 640px; /* setup pages are narrow single-task flows */
+}
+
+html { font-size: 16px; scroll-behavior: smooth; }
+
+body {
+    font-family: var(--font-sans);
+    color: var(--color-text);
+    background: var(--color-off-white);
+    line-height: 1.6;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1.5rem;
+}
+
+/* ── Page branding strip ───────────────────────────────────── */
+/* No full site-header on setup pages, but a minimal top brand
+   bar grounds the page in USD identity */
+body::before {
+    content: '';
+    display: block;
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--color-blue) 0%, var(--color-gold) 100%);
+    z-index: 100;
+}
+
+/* ── Setup card ────────────────────────────────────────────── */
+/* All setup page content lives inside an implied single-column
+   card. Since the HTML doesn't have a wrapper div, we style
+   body > * to be contained within a centered card feel. */
+h1, h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--color-blue-dark);
+    line-height: 1.35;
+    margin-bottom: 1.5rem;
+}
+
+/* Warning/alert headings on setup pages (e.g. "you haven't
+   deleted setup files") get the same alert treatment as .error */
+h2:first-child {
+    background: #fdf0ef;
+    border: 1px solid #f3c2bd;
+    border-left: 4px solid var(--color-danger);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    color: var(--color-danger-dark);
+    font-size: 1rem;
+}
+
+p { margin-bottom: 1rem; color: var(--color-text-muted); }
+
+/* ── Setup form ────────────────────────────────────────────── */
+form {
+    background: var(--color-white);
+    border-radius: 12px;
+    padding: 2rem;
+    width: 100%;
+    max-width: var(--max-width);
+    box-shadow:
+            0 1px 2px rgba(16, 24, 40, 0.04),
+            0 8px 24px rgba(16, 24, 40, 0.08);
+    margin-bottom: 1.5rem;
+}
+
+form div {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-blue-dark);
+    line-height: 1.5;
+    cursor: pointer;
+}
+
+/* Checkbox */
+input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    margin-top: 0.15rem;
+    accent-color: var(--color-blue);
+    cursor: pointer;
+}
+
+/* "YES" label text after the checkbox */
+form div > input[type="checkbox"] + * {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--color-text-muted);
+    letter-spacing: 0.04em;
+}
+
+/* Text inputs (used on other setup pages like DB config) */
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+select,
+textarea {
+    display: block;
+    width: 100%;
+    padding: 0.6rem 0.85rem;
+    font-size: 0.9rem;
+    font-family: inherit;
+    color: var(--color-text);
+    background: var(--color-off-white);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    transition: border-color var(--transition), box-shadow var(--transition);
+    margin-bottom: 1rem;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="email"]:focus,
+input[type="number"]:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--color-blue);
+    box-shadow: 0 0 0 3px rgba(0, 48, 135, 0.12);
+    background: var(--color-white);
+}
+
+/* Submit / action button */
+input[type="submit"],
+input.button,
+button[type="submit"] {
+    display: inline-block;
+    padding: 0.65rem 1.75rem;
+    background: var(--color-blue);
+    color: var(--color-white);
+    font-size: 0.9rem;
+    font-weight: 600;
+    font-family: inherit;
+    border: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background var(--transition);
+    letter-spacing: 0.01em;
+}
+
+input[type="submit"]:hover,
+input.button:hover,
+button[type="submit"]:hover,
+input[type="submit"]:focus-visible,
+input.button:focus-visible,
+button[type="submit"]:focus-visible {
+    background: var(--color-blue-dark);
+}
+
+/* ── Inline notices (success/error paragraphs on setup pages) ── */
+.error,
+.error-message {
+    background: #fdf0ef;
+    border: 1px solid #f3c2bd;
+    border-left: 4px solid var(--color-danger);
+    border-radius: var(--radius);
+    padding: 0.9rem 1.1rem;
+    color: var(--color-danger-dark);
+    font-size: 0.9rem;
+    margin-bottom: 1.25rem;
+}
+
+.success,
+.success-message {
+    background: #eef8f0;
+    border: 1px solid #bfe3c6;
+    border-left: 4px solid #1e7e34;
+    border-radius: var(--radius);
+    padding: 0.9rem 1.1rem;
+    color: #1e7e34;
+    font-size: 0.9rem;
+    margin-bottom: 1.25rem;
+}
+
+/* ── Step indicator (used on multi-step setup wizards) ───────── */
+.setup-steps {
+    display: flex;
+    gap: 0;
+    width: 100%;
+    max-width: var(--max-width);
+    margin-bottom: 2rem;
+    list-style: none;
+    counter-reset: step;
+}
+
+.setup-steps li {
+    flex: 1;
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    padding: 0.5rem 0.25rem;
+    border-bottom: 2px solid var(--color-border);
+    position: relative;
+}
+
+.setup-steps li.active {
+    color: var(--color-blue);
+    border-bottom-color: var(--color-gold);
+}
+
+.setup-steps li.done {
+    color: #1e7e34;
+    border-bottom-color: #1e7e34;
+}
+
+/* ── Footer ─────────────────────────────────────────────────── */
+footer {
+    margin-top: auto;
+    padding-top: 2rem;
+    width: 100%;
+    max-width: var(--max-width);
+}
+
+footer div {
+    border-top: 1px solid var(--color-border);
+    padding-top: 1rem;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    text-align: center;
+    letter-spacing: 0.03em;
+}
+
+/* ── Focus styles ────────────────────────────────────────────── */
+:focus-visible {
+    outline: 3px solid var(--color-gold);
+    outline-offset: 2px;
+}
+
+/* ── Responsive ──────────────────────────────────────────────── */
+@media (max-width: 480px) {
+    body { padding: 1.5rem 1rem; justify-content: flex-start; padding-top: 3rem; }
+    form { padding: 1.25rem; }
+}
+
+
+
+
+
+
+div {
+    display: block;
+    margin:10px 0;
+}
+.flex-container {
+    display: flex;
+}
+.flex-input {
+    flex: 1; /* This will allow the input to take available space */
+    padding: 10px;
+    border: 1px #000000 solid;
+}
+
+.button {
+    padding: 10px 20px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s ease;
+}
+
+.button:hover {
+    background-color: #0056b3;
+}
+
+.button:active {
+    background-color: #004085;
+}
+input[text] {
+    width: 50%;
+}
+
+.error {
+    color: red;
+}

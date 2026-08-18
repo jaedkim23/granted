@@ -1,0 +1,847 @@
+/* ============================================================
+   NSF Project Dashboard — site.css
+   University of San Diego · School of Engineering
+   ============================================================ */
+
+/* ── Reset & base ───────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+    --color-primary:       #003087;
+    --color-primary-dark:  #001f5b;
+    --color-secondary:       #C8A84B;
+    --color-secondary-light: #e8c96b;
+    --color-white:      #ffffff;
+    --color-off-white:  #f5f6f8;
+    --color-text:       #1a1a2e;
+    --color-text-muted: #5a6070;
+    --color-border:     #d8dce8;
+    --color-link:       #003087;
+    --color-link-hover: #C8A84B;
+    --color-danger:     #c0392b;
+    --color-danger-dark:#7a261c;
+    --color-success:    #1e7e34;
+    --color-link-footer:#ffffff;
+
+    --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+    --header-height: 72px;
+    --max-width: 1280px;
+    --radius: 8px;
+    --transition: 180ms ease;
+}
+
+html { font-size: 16px; scroll-behavior: smooth; }
+
+body {
+    font-family: var(--font-sans);
+    color: var(--color-text);
+    background: var(--color-off-white);
+    line-height: 1.6;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+a {
+    color: var(--color-link);
+    text-decoration: none;
+    transition: color var(--transition);
+}
+a:hover, a:focus-visible { color: var(--color-link-hover); }
+
+img { display: block; max-width: 100%; height: auto; }
+
+h1, h2, h3, h4 { line-height: 1.2; font-weight: 700; }
+
+h2 {
+    font-size: 1.625rem;
+    color: var(--color-primary-dark);
+    margin: 0 0 1.75rem;
+}
+
+p { margin-bottom: 1rem; }
+
+ul { list-style: none; }
+
+/* select shown as block-level (legacy rule, still applies sitewide) */
+select { display: block; }
+
+/* ── Buttons ────────────────────────────────────────────────── */
+.btn {
+    display: inline-block;
+    padding: 0.45em 1.1em;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition), border-color var(--transition);
+    white-space: nowrap;
+}
+
+.btn--ghost {
+    border: 2px solid var(--color-white);
+    color: var(--color-white);
+    background: transparent;
+}
+.btn--ghost:hover, .btn--ghost:focus-visible {
+    background: var(--color-white);
+    color: var(--color-primary);
+}
+
+/* ── Site Header ────────────────────────────────────────────── */
+.site-header {
+    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
+    color: var(--color-white);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 1px 2px rgba(16,24,40,0.06), 0 4px 12px rgba(16,24,40,0.10);
+}
+
+.site-header__inner {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 0 1.5rem;
+    height: var(--header-height);
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+.site-header__brand {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-shrink: 0;
+    color: var(--color-white);
+    text-decoration: none;
+}
+.site-header__brand:hover { color: var(--color-secondary-light); }
+
+.site-header__logo {
+    height: 36px;
+    width: auto;
+    filter: brightness(0) invert(1);
+}
+
+.site-header__org {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-left: 1px solid rgba(255,255,255,0.35);
+    padding-left: 0.75rem;
+    line-height: 1.3;
+}
+
+.site-header__title {
+    flex: 1;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--color-secondary-light);
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.site-header__account {
+    margin-left: auto;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.75);
+    white-space: nowrap;
+}
+
+.site-header__account a {
+    display: inline-block;
+    padding: 0.4em 1em;
+    border: 2px solid var(--color-white);
+    border-radius: var(--radius);
+    color: var(--color-white);
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-decoration: none;
+    transition: background var(--transition), color var(--transition);
+}
+.site-header__account a:hover,
+.site-header__account a:focus-visible {
+    background: var(--color-white);
+    color: var(--color-primary);
+}
+
+/* ── Primary Nav ────────────────────────────────────────────── */
+.site-nav {
+    background: var(--color-white);
+    border-bottom: 1px solid var(--color-border);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.site-nav ul {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 0 1.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+/* The CMS outputs a nested <ul> as a SIBLING of <li> elements (not nested
+   inside one) on the public site, e.g.:
+   <li>Home</li><ul><li>...</li><li>...</li></ul><li>R&D</li>
+   Flatten that sibling <ul> into the same flex row as the parent <ul>. */
+.site-nav > ul > ul {
+    display: contents;
+}
+
+.site-nav a {
+    display: block;
+    padding: 0.85rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    position: relative;
+    border-radius: var(--radius) var(--radius) 0 0;
+    transition: color var(--transition), background var(--transition);
+}
+
+.site-nav a::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 1rem; right: 1rem;
+    height: 3px;
+    background: var(--color-secondary);
+    border-radius: 2px 2px 0 0;
+    transform: scaleX(0);
+    transform-origin: center;
+    transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.site-nav a:hover,
+.site-nav a:focus-visible {
+    color: var(--color-primary);
+    background: var(--color-off-white);
+}
+.site-nav a:hover::after,
+.site-nav a:focus-visible::after { transform: scaleX(1); }
+
+/* ── Admin nav dropdowns (manage area: real <ul> nested inside <li>) ─── */
+.site-nav li {
+    position: relative;
+}
+
+.site-nav li > ul {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    min-width: 160px;
+    background: var(--color-white);
+    border: 1px solid var(--color-border);
+    border-radius: 0 0 var(--radius) var(--radius);
+    box-shadow: 0 12px 24px rgba(16,24,40,0.12);
+    padding: 0.4rem;
+    z-index: 50;
+}
+
+.site-nav li:hover > ul,
+.site-nav li:focus-within > ul {
+    display: block;
+}
+
+.site-nav li > ul a {
+    padding: 0.55rem 0.75rem;
+    border-radius: var(--radius);
+    font-size: 0.825rem;
+    font-weight: 500;
+    text-transform: capitalize;
+}
+
+.site-nav li > ul a::after { display: none; }
+
+.site-nav li > ul a:hover,
+.site-nav li > ul a:focus-visible {
+    background: var(--color-off-white);
+    color: var(--color-primary);
+}
+
+/* small caret to indicate a dropdown exists */
+.site-nav li:has(> ul) > a::before {
+    content: '';
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+    margin-right: 0.4rem;
+    margin-bottom: 1px;
+    opacity: 0.55;
+}
+
+/* ── Main Content ───────────────────────────────────────────── */
+.site-content {
+    flex: 1;
+    max-width: var(--max-width);
+    width: 100%;
+    margin: 3rem auto;
+    padding: 0 1.5rem 4rem;
+}
+
+/* Tableau embeds are left unstyled here (no card/background/shadow) — the
+   inline script reads divElement.offsetWidth on this element to size the
+   viz, and padding/border/shadow attempts caused clipping. Just margin for
+   spacing between the embed and surrounding content. */
+.tableauPlaceholder {
+    margin: 2rem 0;
+}
+
+/* Stack spacing when multiple embeds appear one after another */
+.tableauPlaceholder + .tableauPlaceholder {
+    margin-top: 2.5rem;
+}
+
+/* ── Alerts / system messages ─────────────────────────────────── */
+/* Replaces the legacy plain `.error { color: red }` / `.success-messages
+   { color: green }` rules with full alert-box treatment. Kept selectors
+   compatible with both .error (ul) and .success-messages so either old
+   markup still picks up sensible styling. */
+.error,
+ul.error {
+    list-style: none;
+    background: #fdf0ef;
+    border: 1px solid #f3c2bd;
+    border-left: 4px solid var(--color-danger);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin: 0 0 1.75rem;
+    color: var(--color-danger-dark);
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
+
+ul.error li + li { margin-top: 0.5rem; }
+
+ul.error a {
+    color: var(--color-danger-dark);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+ul.error a:hover,
+ul.error a:focus-visible { color: var(--color-danger); }
+
+.success-messages {
+    background: #eef8f0;
+    border: 1px solid #bfe3c6;
+    border-left: 4px solid var(--color-success);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin: 0 0 1.75rem;
+    color: var(--color-success);
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
+
+/* ── Data tables (admin/manage area) ──────────────────────────── */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--color-white);
+    border-radius: 12px;
+    overflow: hidden;
+    margin: 0 0 2rem;
+    box-shadow:
+            0 1px 2px rgba(16, 24, 40, 0.04),
+            0 8px 24px rgba(16, 24, 40, 0.08);
+    font-size: 0.875rem;
+}
+
+table th,
+table td {
+    text-align: left;
+    padding: 0.85rem 1.1rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+table th {
+    background: var(--color-off-white);
+    color: var(--color-primary-dark);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 2px solid var(--color-border);
+}
+
+table tr:last-child td { border-bottom: none; }
+
+table tr:hover td { background: var(--color-off-white); }
+
+table td a {
+    font-size: 0.825rem;
+    font-weight: 600;
+}
+
+table td a:first-of-type { color: var(--color-primary); }
+table td a:last-of-type { color: var(--color-danger); }
+table td a:last-of-type:hover,
+table td a:last-of-type:focus-visible { color: var(--color-danger-dark); }
+
+@media (max-width: 640px) {
+    table { font-size: 0.8rem; }
+    table th, table td { padding: 0.6rem 0.75rem; }
+}
+
+/* ── Content lists (plain bulleted lists inside page body copy) ──── */
+.site-content ul:not(.error):not(.site-footer__links) {
+    list-style: disc;
+    padding-left: 1.4rem;
+    margin: 0 0 1.5rem;
+    color: var(--color-text);
+}
+
+.site-content ul:not(.error):not(.site-footer__links) li {
+    margin-bottom: 0.4rem;
+    line-height: 1.6;
+}
+
+.site-content ul:not(.error):not(.site-footer__links) li::marker {
+    color: var(--color-secondary);
+}
+
+/* ── Forms (admin add/edit screens) ───────────────────────────── */
+.site-content form {
+    background: var(--color-white);
+    border-radius: 12px;
+    padding: 2rem;
+    width: 100%;
+    box-shadow:
+            0 1px 2px rgba(16, 24, 40, 0.04),
+            0 8px 24px rgba(16, 24, 40, 0.08);
+}
+
+.site-content form label {
+    display: block;
+    font-size: 0.825rem;
+    font-weight: 600;
+    color: var(--color-primary-dark);
+    margin: 1.1rem 0 0.4rem;
+}
+
+.site-content form label:first-of-type { margin-top: 0; }
+
+/* fieldset/legend: merged from the "Added by copilot" block, restyled to
+   match the design system instead of the plain #ccc/#f9f9f9 defaults */
+.site-content form fieldset {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: 1.25rem 1.25rem 1rem;
+    margin: 0 0 1.5rem;
+}
+
+.site-content form fieldset:first-child { margin-top: 0; }
+
+.site-content form legend {
+    padding: 0 0.5rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--color-primary-dark);
+    background: var(--color-white);
+    border-radius: var(--radius);
+}
+
+.site-content form input[type="text"],
+.site-content form input[type="email"],
+.site-content form input[type="password"],
+.site-content form input[type="number"],
+.site-content form select,
+.site-content form textarea {
+    width: 100%;
+    padding: 0.6rem 0.85rem;
+    font-size: 0.9rem;
+    font-family: inherit;
+    color: var(--color-text);
+    background: var(--color-off-white);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+/* Short, single-value fields stay compact even though the form is wide */
+.site-content form input[type="text"],
+.site-content form input[type="email"],
+.site-content form input[type="password"],
+.site-content form input[type="number"],
+.site-content form select {
+    max-width: 420px;
+}
+
+/* Page title can run long, so it's allowed to use the full form width */
+.site-content form input#title {
+    max-width: 100%;
+}
+
+.site-content form textarea {
+    resize: vertical;
+    line-height: 1.6;
+    min-height: 100px;
+}
+
+.site-content form input[type="text"]:focus,
+.site-content form input[type="email"]:focus,
+.site-content form input[type="password"]:focus,
+.site-content form input[type="number"]:focus,
+.site-content form select:focus,
+.site-content form textarea:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(0, 48, 135, 0.12);
+    background: var(--color-white);
+}
+
+.site-content form select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--color-text-muted) 50%),
+    linear-gradient(135deg, var(--color-text-muted) 50%, transparent 50%);
+    background-position: calc(100% - 18px) center, calc(100% - 13px) center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 2.25rem;
+    cursor: pointer;
+}
+
+.site-content form br {
+    display: none; /* spacing now handled by label margins, not <br> stacking */
+}
+
+/* ── Login page ──────────────────────────────────────────────── */
+.login-container {
+    max-width: 420px;
+    margin: 0 auto;
+    background: var(--color-white);
+    border-radius: 12px;
+    padding: 2rem;
+    box-shadow:
+            0 1px 2px rgba(16, 24, 40, 0.04),
+            0 8px 24px rgba(16, 24, 40, 0.08);
+}
+
+/* Strip the card styling from the inner form since .login-container
+   already provides it */
+.login-container form {
+    background: none;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
+}
+
+.login-container h2 {
+    margin-bottom: 1.5rem;
+    font-size: 1.25rem;
+}
+
+.login-container form input[type="submit"] {
+    margin-top: 1rem;
+    width: 100%;
+}
+
+.login-container > p {
+    margin: 1rem 0 0;
+    font-size: 0.85rem;
+    text-align: center;
+}
+
+/* TinyMCE replaces the #content textarea with its own iframe-based editor
+   container; make sure that container isn't artificially constrained */
+.site-content form .tox-tinymce {
+    max-width: 100%;
+    border-radius: var(--radius) !important;
+    border-color: var(--color-border) !important;
+}
+
+.site-content form input[type="submit"] {
+    display: inline-block;
+    margin-top: 1.5rem;
+    padding: 0.6rem 1.5rem;
+    background: var(--color-primary);
+    color: var(--color-white);
+    font-size: 0.875rem;
+    font-weight: 600;
+    border: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background var(--transition);
+}
+
+.site-content form input[type="submit"]:hover,
+.site-content form input[type="submit"]:focus-visible {
+    background: var(--color-primary-dark);
+}
+
+@media (max-width: 640px) {
+    .site-content form { padding: 1.25rem; max-width: 100%; }
+    .site-content form input[type="text"],
+    .site-content form input[type="email"],
+    .site-content form input[type="password"],
+    .site-content form input[type="number"],
+    .site-content form select {
+        max-width: 100%;
+    }
+}
+
+/* ── Configuration editor (merged from "Added by copilot" block) ─────
+   Used on the /manage/conf/edit screen for labeled rows and the dynamic
+   resource-link list (add/remove URL rows). Restyled to match the rest
+   of the design system (brand colors, --radius, --transition) instead
+   of the original hardcoded greys/blues/reds. */
+.field-group {
+    margin-bottom: 1.1rem;
+}
+
+.field-group label {
+    display: inline-block;
+    width: 150px;
+    font-weight: 600;
+    color: var(--color-primary-dark);
+    margin-right: 0.6rem;
+    vertical-align: top;
+}
+
+.field-group input[type="text"] {
+    width: 300px;
+    max-width: 100%;
+    padding: 0.5rem 0.7rem;
+    font-family: inherit;
+    font-size: 0.9rem;
+    color: var(--color-text);
+    background: var(--color-off-white);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.field-group input[type="text"]:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(0, 48, 135, 0.12);
+    background: var(--color-white);
+}
+
+.resource-links-container {
+    display: inline-block;
+    vertical-align: top;
+}
+
+.resource-link-item {
+    margin-bottom: 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.resource-link-item label {
+    width: 30px;
+    text-align: right;
+    margin-right: 0.6rem;
+    font-weight: 500;
+    color: var(--color-text-muted);
+}
+
+.resource-link-item input[type="text"] {
+    flex: 1;
+    max-width: 400px;
+    padding: 0.5rem 0.7rem;
+    font-family: inherit;
+    font-size: 0.9rem;
+    color: var(--color-text);
+    background: var(--color-off-white);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+}
+
+.resource-link-item input[type="text"]:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(0, 48, 135, 0.12);
+    background: var(--color-white);
+}
+
+.resource-link-item button {
+    padding: 0.4rem 0.7rem;
+    background: var(--color-danger);
+    color: var(--color-white);
+    border: none;
+    border-radius: var(--radius);
+    font-size: 0.825rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background var(--transition);
+}
+
+.resource-link-item button:hover {
+    background: var(--color-danger-dark);
+}
+
+.add-resource-link {
+    padding: 0.5rem 1rem;
+    background: var(--color-success);
+    color: var(--color-white);
+    border: none;
+    border-radius: var(--radius);
+    font-size: 0.825rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 0.6rem;
+    transition: background var(--transition);
+}
+
+.add-resource-link:hover {
+    background: #155d28;
+}
+
+.form-actions {
+    text-align: center;
+    margin-top: 2rem;
+}
+
+.form-actions input[type="submit"] {
+    padding: 0.7rem 1.5rem;
+    background: var(--color-primary);
+    color: var(--color-white);
+    border: none;
+    border-radius: var(--radius);
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background var(--transition);
+}
+
+.form-actions input[type="submit"]:hover {
+    background: var(--color-primary-dark);
+}
+
+/* ── Site Footer ────────────────────────────────────────────── */
+.site-footer {
+    background: var(--color-primary-dark);
+    color: rgba(255,255,255,0.75);
+    border-top: 3px solid var(--color-secondary);
+    margin-top: auto;
+}
+
+.site-footer__inner {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 0.85rem 1.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1.25rem;
+}
+
+/* Logo is now a bare <img> direct child of .site-footer__inner */
+.site-footer__inner > img {
+    height: 24px;
+    width: auto;
+    filter: brightness(0) invert(1);
+    opacity: 1;
+    flex-shrink: 0;
+}
+
+.site-footer__copy {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.85);
+    margin: 0 0 0 auto; /* pushes copyright text to the far right */
+    flex-shrink: 0;
+}
+
+/* Link list in footer — sits between the logo and the copyright text */
+.site-footer__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.25rem;
+    align-items: center;
+    padding-left: 1.25rem;
+    border-left: 1px solid rgba(255,255,255,0.2);
+}
+
+.site-footer__links:empty {
+    display: none;
+    padding-left: 0;
+    border-left: none;
+}
+
+.site-footer__links li { display: inline; }
+
+.site-footer__links a {
+    font-size: 0.8rem;
+    color: var(--color-link-footer);
+    transition: color var(--transition);
+}
+.site-footer__links a:hover,
+.site-footer__links a:focus-visible {
+    color: var(--color-secondary-light);
+}
+
+/* ── Focus styles (accessibility) ──────────────────────────── */
+:focus-visible {
+    outline: 3px solid var(--color-secondary);
+    outline-offset: 2px;
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 640px) {
+    .tableauPlaceholder {
+        max-height: 600px;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    :root { --header-height: 60px; }
+
+    .site-header__inner { gap: 0.75rem; }
+
+    .site-header__title { font-size: 0.95rem; }
+
+    .site-header__org {
+        display: none; /* hide on small screens, logo alone is enough */
+    }
+
+    .site-header__logo { height: 28px; }
+
+    .site-content { padding: 0 1rem 2rem; }
+
+    .site-footer__inner { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+
+    .site-footer__links {
+        padding-left: 0;
+        border-left: none;
+        padding-top: 1rem;
+        border-top: 1px solid rgba(255,255,255,0.2);
+        width: 100%;
+    }
+
+    .site-footer__links:empty {
+        padding-top: 0;
+        border-top: none;
+    }
+
+    .field-group label {
+        display: block;
+        width: auto;
+        margin-bottom: 0.3rem;
+    }
+
+    .field-group input[type="text"] {
+        width: 100%;
+    }
+
+    .resource-link-item input[type="text"] {
+        max-width: 100%;
+    }
+}
