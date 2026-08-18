@@ -1,0 +1,30 @@
+{
+    "name": "bteague/nsfproject",
+    "type": "project",
+    "require": {
+        "phpseclib/phpseclib": "^3.0",
+        "matomo/ini": "^3.0",
+        "erusev/parsedown": "^1.7",
+      "ext-pdo": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Nsfproject\\": "nsfproject/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Bryan Teague",
+            "email": "bryant@sandiego.edu"
+        }
+    ],
+    "config": {
+        "vendor-dir": "nsfproject/vendor",
+        "platform": {
+            "php": "8.2"
+        }
+    }
+}

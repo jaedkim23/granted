@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.5/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         failOnDeprecation="true"
+         failOnEmptyTestSuite="true"
+         failOnIncomplete="false"
+         failOnRisky="false"
+         failOnSkipped="false"
+         failOnWarning="true"
+         beStrictAboutOutputDuringTests="true"
+         beStrictAboutTestsThatDoNotTestAnything="true"
+         colors="true">
+    <source>
+        <include>
+            <directory suffix=".php">includes/nsfproject</directory>
+        </include>
+        <exclude>
+            <directory>includes/nsfproject/vendor</directory>
+            <directory>tests</directory>
+        </exclude>
+    </source>
+    <testsuites>
+        <testsuite name="Unit Tests">
+            <file>tests/LoggerTest.php</file>
+            <file>tests/HelperTest.php</file>
+            <file>tests/UserTest.php</file>
+            <file>tests/PagesTest.php</file>
+            <file>tests/NavigationTest.php</file>
+            <file>tests/DbModelTest.php</file>
+        </testsuite>
+    </testsuites>
+    <coverage>
+        <report>
+            <html outputDirectory="tests/coverage"/>
+            <text outputFile="php://stdout" showOnlySummary="false"/>
+        </report>
+    </coverage>
+</phpunit>
+
+
+
